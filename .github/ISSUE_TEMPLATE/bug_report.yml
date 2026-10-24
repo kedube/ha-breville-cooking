@@ -1,0 +1,36 @@
+name: Bug report
+description: Something isn't working as it should.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What happened, and what you expected instead.
+    validations:
+      required: true
+  - type: input
+    id: appliance
+    attributes:
+      label: Appliance and brand
+      placeholder: ChefSteps Joule Sous Vide (CSJ100), Breville
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: The integration's version and Home Assistant's (**Settings → About**).
+      placeholder: Integration 0.01, Home Assistant 2026.3.1
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Errors mentioning breville_cooking from **Settings → System → Logs**. For more detail, choose **Enable debug logging** on the integration's page, reproduce the problem, then **Disable debug logging** to download the log.
+      render: text
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Go to **Settings → Devices & services → Breville+ Cooking**, choose ⋮ → **Download diagnostics**, and drag the file here. Look it over before posting.

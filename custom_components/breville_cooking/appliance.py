@@ -46,12 +46,15 @@ class ModelInfo:
     min_temp_c: float
     max_temp_c: float
     max_cook_s: int
+    # Whether control has been confirmed on a real appliance. Untested models
+    # are monitor-only unless the user allows control in the options.
+    tested: bool = False
 
 
 MODELS: dict[str, ModelInfo] = {
     MODEL_CSJ100: ModelInfo(
         MODEL_CSJ100, "Joule Sous Vide", "ChefSteps", Kind.SOUS_VIDE,
-        CSJ_MIN_TEMP_C, CSJ_MAX_TEMP_C, 96 * HOUR,
+        CSJ_MIN_TEMP_C, CSJ_MAX_TEMP_C, 96 * HOUR, tested=True,
     ),
     MODEL_BSV600: ModelInfo(
         MODEL_BSV600, "Joule Turbo Sous Vide", "Breville", Kind.SOUS_VIDE,
@@ -445,10 +448,28 @@ def _parse_task_engine(s: dict[str, Any], now: datetime) -> ApplianceStatus:
         if timer and timer.get("down_from_n") not in (None, SKIP_TIMER_VALUE):
             status.cook_time_s = int(timer["down_from_n"])
             if timer.get("state") in (TimerState.RUNNING, TimerState.PAUSED):
-                status.time_remaining_s = int(timer.get("now") or 0)
+                remaining = int(timer.get("now") or 0)
                 if timer.get("state") == TimerState.RUNNING:
-                    status.ends_at = _ends_at(now, status.time_remaining_s)
+                    remaining = _running_remaining(timer, remaining, now)
+                    status.ends_at = _ends_at(now, remaining)
+                status.time_remaining_s = remaining
     return status
+
+
+def _running_remaining(timer: dict[str, Any], remaining: int, now: datetime) -> int:
+    """Seconds left on a running timer, worked out as the app does.
+
+    `now` is the seconds left when the appliance sampled it, at `timestamp`
+    (epoch seconds), so a report that arrives late is corrected for the delay.
+    """
+    sampled = _num(timer.get("timestamp"))
+    if not sampled or timer.get("now") is None:
+        return remaining
+    left = int(sampled + remaining - now.timestamp())
+    # Ignore impossible values, such as from a clock that's far off.
+    if left > (_num(timer.get("down_from_n")) or 0):
+        return remaining
+    return max(left, 0)
 
 
 # -- state tracking -------------------------------------------------------------

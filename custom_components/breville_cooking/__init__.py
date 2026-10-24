@@ -8,11 +8,11 @@ from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv, service
+from homeassistant.helpers import config_validation as cv, device_registry as dr, service
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
-from .api import BrevilleClient, Tokens
+from .api import BRANDS, BrevilleClient, Tokens
 from .appliance import CONVECTION_ALL, OVEN_MODES
 from .const import (
     ATTR_AUTO_START_TIMER,
@@ -22,6 +22,8 @@ from .const import (
     ATTR_LEVEL,
     ATTR_MODE,
     ATTR_TEMPERATURE,
+    BRAND_BREVILLE,
+    CONF_BRAND,
     DOMAIN,
     SERVICE_START_COOK,
 )
@@ -75,6 +77,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: BrevilleConfigEntry) -> 
     client = BrevilleClient(
         async_get_clientsession(hass),
         Tokens.from_dict(entry.data),
+        endpoints=BRANDS[entry.data.get(CONF_BRAND, BRAND_BREVILLE)],
         on_tokens_updated=save_tokens,
     )
     coordinator = BrevilleCoordinator(hass, entry, client)
@@ -88,3 +91,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: BrevilleConfigEntry) -> 
 async def async_unload_entry(hass: HomeAssistant, entry: BrevilleConfigEntry) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: BrevilleConfigEntry, device: dr.DeviceEntry
+) -> bool:
+    """Allow deleting a device once its appliance has left the account."""
+    coordinator = entry.runtime_data
+    serials = [ident for domain, ident in device.identifiers if domain == DOMAIN]
+    if any(
+        (appliance := coordinator.appliances.get(serial)) is not None and appliance.on_account
+        for serial in serials
+    ):
+        return False
+    for serial in serials:
+        await coordinator.async_remove_appliance(serial)
+    return True

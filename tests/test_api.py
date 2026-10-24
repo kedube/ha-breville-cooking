@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import dataclasses
 import importlib.util
 import json
 import sys
@@ -180,6 +181,37 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["appliances"][0]["serialNumber"], SERIAL)
         _, _, headers, _ = self.cloud.requests[-1]
         self.assertEqual(headers["app"], "brevilleJoule")
+
+    async def test_sage_uses_its_own_client_and_channel(self) -> None:
+        ep = api.BRANDS["sage"]
+        local = self.cloud.endpoints()
+        sage = api.BrevilleClient(
+            self.session,
+            endpoints=dataclasses.replace(
+                local, client_id=ep.client_id, app_channel=ep.app_channel
+            ),
+        )
+        await sage.login("me@example.com", "pw")
+        await sage.get_appliances()
+        _, _, _, login = self.cloud.requests[0]
+        self.assertEqual(login["client_id"], "Vp1NuYQ76uhbslASYk0iRRbeHUIsrGDa")
+        _, _, headers, _ = self.cloud.requests[-1]
+        self.assertEqual(headers["app"], "sageJoule")
+        # Only the Auth0 client and app channel differ from Breville.
+        self.assertEqual(
+            dataclasses.replace(ep, client_id="", app_channel=""),
+            dataclasses.replace(api.BRANDS["breville"], client_id="", app_channel=""),
+        )
+
+    async def test_requests_are_logged_without_path_ids(self) -> None:
+        await self.client.login("me@example.com", "pw")
+        await self.client.get_appliances()
+        await self.client.finish_wait(SERIAL, "CSJ100")
+        get, post = self.client.recent_requests
+        self.assertEqual((get["method"], get["endpoint"], get["status"]), ("GET", "appliances", 200))
+        self.assertNotIn("response", get)  # account details stay out of the log
+        self.assertEqual((post["endpoint"], post["body"]["applianceModel"]), ("finish-wait", "CSJ100"))
+        self.assertIn("response", post)
 
     async def test_401_refreshes_and_retries_once(self) -> None:
         await self.client.login("me@example.com", "pw")

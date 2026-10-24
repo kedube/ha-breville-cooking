@@ -183,7 +183,10 @@ class Probe:
         connector = aiohttp.TCPConnector(ssl=ssl_context())
         async with aiohttp.ClientSession(connector=connector) as session:
             self.client = api.BrevilleClient(
-                session, self.store.load(), on_tokens_updated=self.store.save
+                session,
+                self.store.load(),
+                endpoints=api.BRANDS[self.args.brand],
+                on_tokens_updated=self.store.save,
             )
             try:
                 return await getattr(self, f"cmd_{self.args.command.replace('-', '_')}")()
@@ -435,6 +438,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--state-dir", default=str(STATE_DIR), help="where tokens are saved")
     parser.add_argument("--out", default=str(OUT_DIR), help="where capture files are written")
+    parser.add_argument("--brand", choices=sorted(api.BRANDS), default="breville",
+                        help="sage for the Sage app (UK and Europe); log in again after changing it")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("login", help="log in and save a session")

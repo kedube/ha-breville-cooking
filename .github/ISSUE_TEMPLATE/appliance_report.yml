@@ -1,0 +1,65 @@
+name: Appliance report
+description: Tell us how the integration works with your appliance. Reports for the Joule Turbo and the Joule Oven are especially welcome.
+title: "Appliance report: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying the integration! Reports from real appliances are how untested models become supported, whether everything worked or nothing did.
+
+        Untested appliances are monitor-only at first. To try starting or changing cooks, turn on **Allow control of untested appliances** in the integration's options (**Settings → Devices & services → Breville+ Cooking → Configure**), and stay near the appliance while you test.
+  - type: dropdown
+    id: appliance
+    attributes:
+      label: Appliance
+      options:
+        - Joule Turbo Sous Vide (BSV600)
+        - Joule Oven Air Fryer Pro (BOV950)
+        - ChefSteps Joule Sous Vide (CSJ100)
+        - Something else (say which below)
+    validations:
+      required: true
+  - type: dropdown
+    id: brand
+    attributes:
+      label: Brand
+      options:
+        - Breville
+        - Sage
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: The integration's version and Home Assistant's (**Settings → About**).
+      placeholder: Integration 0.01, Home Assistant 2026.3.1
+    validations:
+      required: true
+  - type: checkboxes
+    id: worked
+    attributes:
+      label: What worked
+      description: Tick what worked as expected, and describe the rest below.
+      options:
+        - label: Status and Temperature match the appliance
+        - label: Time remaining and Cook end match the appliance's timer
+        - label: Turning on Cook starts a cook at the right temperature and time
+        - label: Changing Target temperature during a cook
+        - label: Changing Cook time during a cook
+        - label: Pressing Continue starts the timer once the food is in
+        - label: Turning off Cook stops the cook
+  - type: textarea
+    id: details
+    attributes:
+      label: What happened
+      description: Anything that didn't work or looked wrong, and what the appliance or the app showed at the time. For the oven, say which modes you tried.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Right after testing, go to **Settings → Devices & services → Breville+ Cooking**, choose ⋮ → **Download diagnostics**, and drag the file here. It includes the appliance's recent messages, without your email, login tokens or network addresses. Look it over before posting.
+    validations:
+      required: true

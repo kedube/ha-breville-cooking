@@ -1,7 +1,6 @@
 {
   "domain": "breville_cooking",
   "name": "Breville+ Cooking",
-  "categories": ["appliances_cleaning.cooking"],
   "codeowners": ["@kedube"],
   "config_flow": true,
   "documentation": "https://github.com/kedube/ha-breville-cooking",

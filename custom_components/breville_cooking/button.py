@@ -8,7 +8,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BrevilleConfigEntry
 from .appliance import WAITING_STATES
-from .entity import BrevilleEntity
+from .entity import BrevilleEntity, async_add_appliance_entities
 
 PARALLEL_UPDATES = 1
 
@@ -18,10 +18,10 @@ async def async_setup_entry(
     entry: BrevilleConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    coordinator = entry.runtime_data
-    async_add_entities(
-        ContinueButton(coordinator, appliance, "continue")
-        for appliance in coordinator.appliances.values()
+    async_add_appliance_entities(
+        entry,
+        async_add_entities,
+        lambda coordinator, appliance: [ContinueButton(coordinator, appliance, "continue")],
     )
 
 

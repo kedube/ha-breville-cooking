@@ -3,14 +3,16 @@
     "step": {
       "user": {
         "title": "Breville+ Cooking",
-        "description": "Log in with the account you use in the Breville+ Cooking app.",
+        "description": "Log in with the account you use in the Breville+ Cooking app, or in Sage's version of it.",
         "data": {
           "email": "Email",
-          "password": "Password"
+          "password": "Password",
+          "brand": "Brand"
         },
         "data_description": {
-          "email": "The email address of your Breville account.",
-          "password": "Your password is only sent to Breville. Home Assistant keeps a login session, not the password."
+          "email": "The email address of your Breville or Sage account.",
+          "password": "Your password is only sent to Breville. Home Assistant keeps a login session, not the password.",
+          "brand": "The brand of your app and appliances: Sage in the UK, Europe and the UAE, and Breville elsewhere."
         }
       },
       "reauth_confirm": {
@@ -31,6 +33,19 @@
       "already_configured": "This Breville account is already set up.",
       "reauth_successful": "Logged in again.",
       "wrong_account": "That's a different Breville account from the one set up here."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Some appliances haven't been tested with this integration yet, so Home Assistant only monitors them. Stopping a cook always works.",
+        "data": {
+          "allow_untested_control": "Allow control of untested appliances"
+        },
+        "data_description": {
+          "allow_untested_control": "Also start and change cooks on untested appliances. Only turn this on when you can keep an eye on the appliance, and please report how it goes."
+        }
+      }
     }
   },
   "entity": {
@@ -186,6 +201,12 @@
     }
   },
   "selector": {
+    "brand": {
+      "options": {
+        "breville": "Breville",
+        "sage": "Sage"
+      }
+    },
     "oven_mode": {
       "options": {
         "bake": "Bake",
@@ -256,6 +277,35 @@
           "description": "Keep the food warm when an oven cook finishes."
         }
       }
+    }
+  },
+  "exceptions": {
+    "untested_control": {
+      "message": "Control of the {product} hasn't been tested yet. To try it, turn on \"Allow control of untested appliances\" in the integration's options."
+    },
+    "start_failed": {
+      "message": "Couldn't start the cook: {error}"
+    },
+    "edit_failed": {
+      "message": "Couldn't change the cook: {error}"
+    },
+    "auth_expired": {
+      "message": "The Breville login has expired. Re-authenticate the integration, then try again."
+    },
+    "request_failed": {
+      "message": "The request to Breville's cloud failed: {error}"
+    },
+    "target_cook_switch": {
+      "message": "Target the appliance's Cook switch."
+    },
+    "mode_oven_only": {
+      "message": "Modes only apply to the oven."
+    },
+    "level_not_for_mode": {
+      "message": "Level {level} doesn't apply to this mode."
+    },
+    "stop_cook_first": {
+      "message": "Stop the cook before changing this setting."
     }
   }
 }

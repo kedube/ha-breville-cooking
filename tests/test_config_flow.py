@@ -18,7 +18,7 @@ from custom_components.breville_cooking.api import (
     BrevilleMfaRequired,
     Tokens,
 )
-from custom_components.breville_cooking.const import DOMAIN
+from custom_components.breville_cooking.const import CONF_ALLOW_UNTESTED_CONTROL, CONF_BRAND, DOMAIN
 
 from .common import make_jwt
 
@@ -40,7 +40,31 @@ async def test_user_flow(hass: HomeAssistant) -> None:
     assert result["title"] == "me@example.com"
     assert result["result"].unique_id == "Salesforce|1"
     assert result["data"]["refresh_token"] == "refresh"
+    assert result["data"][CONF_BRAND] == "breville"
     assert CONF_PASSWORD not in result["data"]
+
+
+@pytest.mark.parametrize(
+    ("country", "user_input", "brand", "client_id"),
+    [
+        ("US", USER, "breville", "A2IYXGeuX1g8s049YEri6WC6hu2wlrMZ"),
+        ("GB", USER, "sage", "Vp1NuYQ76uhbslASYk0iRRbeHUIsrGDa"),
+        ("US", {**USER, CONF_BRAND: "sage"}, "sage", "Vp1NuYQ76uhbslASYk0iRRbeHUIsrGDa"),
+    ],
+)
+async def test_brand(
+    hass: HomeAssistant, country: str, user_input: dict, brand: str, client_id: str
+) -> None:
+    """The brand defaults to the one sold in the country, and picks the login client."""
+    hass.config.country = country
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    with patch(LOGIN, autospec=True, return_value=tokens()) as login, patch(
+        SETUP_ENTRY, AsyncMock(return_value=True)
+    ):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], user_input)
+    assert result["data"][CONF_BRAND] == brand
+    client = login.await_args.args[0]
+    assert client.endpoints.client_id == client_id
 
 
 @pytest.mark.parametrize(
@@ -99,3 +123,15 @@ async def test_reauth(hass: HomeAssistant, sub: str, reason: str) -> None:
         assert entry.data[CONF_EMAIL] == "me@example.com"
     else:
         assert entry.data["refresh_token"] == "old"
+
+
+async def test_options_flow(hass: HomeAssistant) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, unique_id="Salesforce|1", data={CONF_EMAIL: "me@example.com"})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_ALLOW_UNTESTED_CONTROL: True}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options == {CONF_ALLOW_UNTESTED_CONTROL: True}

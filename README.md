@@ -1,6 +1,10 @@
 # Breville+ Cooking for Home Assistant
 
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![GitHub release](https://img.shields.io/github/v/release/kedube/ha-breville-cooking)](https://github.com/kedube/ha-breville-cooking/releases)
 [![CI](https://github.com/kedube/ha-breville-cooking/actions/workflows/ci.yml/badge.svg)](https://github.com/kedube/ha-breville-cooking/actions/workflows/ci.yml)
+![Home Assistant 2026.2+](https://img.shields.io/badge/Home%20Assistant-2026.2%2B-41BDF5.svg)
+[![License](https://img.shields.io/github/license/kedube/ha-breville-cooking)](LICENSE)
 
 Control your Breville+ Cooking appliances from Home Assistant: start and stop
 cooks, change the temperature and timer, and get notified when the water is
@@ -10,6 +14,12 @@ Cooking app.
 This integration is unofficial, and isn't affiliated with or endorsed by
 Breville.
 
+[Appliances](#supported-appliances) · [Installation](#installation) ·
+[Setup](#setup) · [Entities](#entities) · [Actions](#actions) ·
+[Examples](#examples) · [Safety](#safety) ·
+[Limitations](#known-limitations) · [Testing](#testing-an-appliance) ·
+[Troubleshooting](#troubleshooting) · [Development](#development)
+
 ## Supported appliances
 
 | Appliance | Model | Status |
@@ -18,47 +28,101 @@ Breville.
 | Joule Turbo Sous Vide | BSV600 | Built from the app's code; untested |
 | Joule Oven Air Fryer Pro | BOV950 | Built from the app's code; untested |
 
-Other appliances on the account, such as espresso machines and other ovens,
-are ignored. If you have a BSV600 or BOV950, please try it and
-[open an issue](https://github.com/kedube/ha-breville-cooking/issues) with
-your [diagnostics](#troubleshooting), whether it works or not.
+Untested appliances are monitor-only until you allow control in the
+integration's [options](#options). If you have one, please
+[help test it](#testing-an-appliance). Sage-branded appliances, sold in the
+UK, Europe and the UAE, are supported the same way, but nobody has tried a
+Sage account yet.
+
+Other appliances on the account are ignored. For espresso machines, see the
+[Sage Coffee](https://github.com/simonjgreen/sageha) integration.
 
 ## Requirements
 
 - Home Assistant 2026.2 or newer.
-- The Breville+ account you use in the Breville+ Cooking app. Accounts with
-  multi-factor authentication aren't supported yet.
+- The account you use in the Breville+ Cooking app, or in Sage's version of
+  it. Accounts with multi-factor authentication aren't supported.
 - The appliance set up in the app and connected to Wi-Fi. A Joule set to
   "Bluetooth only" can't be reached.
 
 ## Installation
 
-### HACS
+### HACS (recommended)
 
-[![Open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=kedube&repository=ha-breville-cooking&category=integration)
+This repository is not in the HACS default store, so add it to HACS as a
+custom repository. The quickest way is this button, which opens it in HACS on
+your Home Assistant:
 
-Or, in HACS, add `https://github.com/kedube/ha-breville-cooking` as a custom
-repository of type *Integration*. Then download **Breville+ Cooking** and
-restart Home Assistant. HACS offers each new release as an update.
+[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=kedube&repository=ha-breville-cooking&category=integration)
 
-### Manually
+Or add it by hand:
 
-Download `breville_cooking.zip` from the
-[latest release](https://github.com/kedube/ha-breville-cooking/releases/latest),
-unzip it into `config/custom_components/breville_cooking`, and restart Home
-Assistant.
+1. In Home Assistant, open **HACS**.
+2. Open the menu (**⋮**, top right) and choose **Custom repositories**.
+3. Enter `https://github.com/kedube/ha-breville-cooking`, choose the type
+   **Integration**, and select **Add**.
+4. Search HACS for **Breville+ Cooking**, open it and select **Download**.
+5. Restart Home Assistant.
+6. [Add the integration](#setup).
+
+### Updating
+
+HACS offers each new release as an update and shows its release notes.
+Install the update and restart Home Assistant.
+
+### Manual installation
+
+1. Download `breville_cooking.zip` from the
+   [latest release](https://github.com/kedube/ha-breville-cooking/releases/latest).
+2. Unzip it into a `breville_cooking` folder inside the `custom_components`
+   folder of your Home Assistant configuration directory, creating the folders
+   if needed.
+3. Restart Home Assistant.
+
+Manual installs don't get update notifications. Repeat these steps to update.
+
+### Removing
+
+1. Go to **Settings → Devices & services → Breville+ Cooking**, then ⋮ →
+   **Delete**.
+2. In HACS, open **Breville+ Cooking** and choose ⋮ → **Remove**. If you
+   installed it manually, delete its `custom_components/breville_cooking`
+   folder instead.
+3. Restart Home Assistant.
+
+This doesn't change anything on your Breville+ account or appliances.
 
 ## Setup
 
 [![Start setting up Breville+ Cooking](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=breville_cooking)
 
 Or go to **Settings → Devices & services → Add integration** and choose
-**Breville+ Cooking**. Log in with your Breville+ email and password. Each
+**Breville+ Cooking**. Log in with your email and password, and choose your
+brand: Sage in the UK, Europe and the UAE, and Breville elsewhere. Each
 supported appliance on the account becomes a device, named as in the app.
 
 Your password is only sent to Breville. Home Assistant keeps a login session,
 not the password, and asks you to log in again if the session expires. To add
-another Breville+ account, add the integration again.
+another account, add the integration again.
+
+### Options
+
+**Allow control of untested appliances** is off at first. The Joule Turbo and
+the Joule Oven haven't been tried on real appliances, so until you turn it on,
+Home Assistant only shows their status and can stop a cook, not start or
+change one. To turn it on, go to **Settings → Devices & services → Breville+
+Cooking → Configure**, and then
+[report how it goes](#testing-an-appliance).
+
+## Languages
+
+The integration's screens, entity names and messages follow your Home
+Assistant language. They're available in English, German, French, Dutch,
+Spanish, Simplified Chinese, Italian, Polish and Swedish. Oven modes use the
+Breville+ app's names where those are accurate. If you're a native speaker
+and something reads wrong, please edit
+`custom_components/breville_cooking/translations/<language>.json` and open a
+pull request.
 
 ## Entities
 
@@ -209,20 +273,43 @@ before cooks above 85 °C.
 Home Assistant keeps one connection open to Breville's cloud, which pushes
 changes as they happen, usually within a second or two. If the connection
 drops, it reconnects by itself: first after 5 seconds, then less often, up to
-5 minutes apart. Entities are unavailable while it's disconnected. It also
-checks the account's list of appliances every 30 minutes.
+5 minutes apart. Entities are unavailable while it's disconnected.
+
+It also checks the account's list of appliances every 30 minutes. New
+appliances appear by themselves. Ones that have left the account become
+unavailable, and you can then delete them from their device page.
 
 ## Known limitations
 
-- The BSV600 and BOV950 haven't been tried on real appliances.
+- The BSV600 and BOV950 haven't been tried on real appliances, so they're
+  monitor-only unless you allow control in the [options](#options).
+- Nobody has tried a Sage account yet.
 - Accounts with multi-factor authentication can't log in.
 - The BSV600's Turbo mode isn't offered.
 - The oven's Toast, Bagel and Crispy reheat modes can't be started from Home
   Assistant, though **Active mode** shows them.
-- An appliance added to the account after setup only appears after you reload
-  the integration.
+- The BOV970 and BOV870 ovens aren't supported. The Breville+ app itself has
+  no controls for them yet.
+- Appliances added to the account can take up to 30 minutes to appear.
 - There's no local control. Breville can change its cloud at any time, which
   could break this integration.
+
+## Testing an appliance
+
+If you have a Joule Turbo, a Joule Oven Air Fryer Pro or a Sage account, you
+can help get it supported:
+
+1. Set up the integration, and check that Status, Temperature and the timer
+   match the appliance.
+2. To try control too, turn on **Allow control of untested appliances** in
+   the [options](#options). Stay near the appliance, and only start a sous
+   vide when it's in water.
+3. Try a short cook. Start it with **Cook**, change **Target temperature**
+   and **Cook time**, press **Continue** when asked, then turn **Cook** off.
+4. Straight away, download the [diagnostics](#troubleshooting) and attach
+   them to an
+   [appliance report](https://github.com/kedube/ha-breville-cooking/issues/new?template=appliance_report.yml),
+   whether it all worked or not.
 
 ## Troubleshooting
 
@@ -231,28 +318,23 @@ checks the account's list of appliances every 30 minutes.
   off or disconnected; check it in the Breville+ app.
 - **Asked to log in again:** the Breville session expired. Follow the prompt
   in **Settings → Devices & services** and enter your password.
-- **A new appliance is missing:** go to **Settings → Devices & services →
-  Breville+ Cooking**, then ⋮ → **Reload**.
+- **A new appliance is missing:** it appears within 30 minutes. To add it
+  straight away, go to **Settings → Devices & services → Breville+ Cooking**,
+  then ⋮ → **Reload**.
+- **A removed appliance is still listed:** once it's gone from your account,
+  open its device page and delete it.
+- **Starting a cook says it hasn't been tested:** see [Options](#options).
 - **Anything else:** on the same page, choose **Enable debug logging**,
   reproduce the problem, then choose **Disable debug logging** to download the
   log.
 
 When you report a problem or want support for a new model or firmware, attach
 the integration's diagnostics: go to **Settings → Devices & services →
-Breville+ Cooking**, then ⋮ → **Download diagnostics**. The file contains the
-appliances' raw state, without your email, login tokens or the appliances'
-network addresses, and with serial numbers cut to their last four digits.
-Look it over before posting it publicly.
-
-## Removing the integration
-
-1. Go to **Settings → Devices & services → Breville+ Cooking**, then ⋮ →
-   **Delete**.
-2. Remove the files. In HACS, open **Breville+ Cooking** and choose ⋮ →
-   **Remove**. If you installed manually, delete
-   `config/custom_components/breville_cooking`. Then restart Home Assistant.
-
-This doesn't change anything on your Breville+ account or appliances.
+Breville+ Cooking**, then ⋮ → **Download diagnostics**. The file contains each
+appliance's raw state and its last 50 messages from Breville's cloud, plus
+Home Assistant's last 20 requests to the cloud. Your email, login tokens,
+appliance names and network addresses are removed, and serial numbers are cut
+to their last four digits. Look the file over before posting it publicly.
 
 ## Development
 
@@ -279,7 +361,8 @@ which HACS offers as an update. To preview the next version, run
 
 `scripts/breville_probe.py` talks to the Breville cloud directly, without Home
 Assistant, and logs every request and websocket message (redacted) to
-`probe-output/`. It was used to verify the protocol on a Joule:
+`probe-output/`. It was used to verify the protocol on a Joule. Add
+`--brand sage` before the command for a Sage account.
 
 ```sh
 python3 scripts/breville_probe.py login

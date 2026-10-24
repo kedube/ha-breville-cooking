@@ -19,7 +19,8 @@ from .appliance import (
     SlowCookLevel,
     oven_mode_defaults,
 )
-from .entity import BrevilleEntity
+from .const import DOMAIN
+from .entity import BrevilleEntity, async_add_appliance_entities
 
 PARALLEL_UPDATES = 0
 
@@ -34,16 +35,18 @@ async def async_setup_entry(
     entry: BrevilleConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    coordinator = entry.runtime_data
-    async_add_entities(
-        entity
-        for appliance in coordinator.appliances.values()
-        if appliance.model == MODEL_BOV950
-        for entity in (
-            OvenModeSelect(coordinator, appliance, "oven_mode"),
-            ConvectionSelect(coordinator, appliance, "convection"),
-            LevelSelect(coordinator, appliance, "level"),
-        )
+    async_add_appliance_entities(
+        entry,
+        async_add_entities,
+        lambda coordinator, appliance: (
+            (
+                OvenModeSelect(coordinator, appliance, "oven_mode"),
+                ConvectionSelect(coordinator, appliance, "convection"),
+                LevelSelect(coordinator, appliance, "level"),
+            )
+            if appliance.model == MODEL_BOV950
+            else ()
+        ),
     )
 
 
@@ -54,7 +57,9 @@ class OvenSettingSelect(BrevilleEntity, SelectEntity, RestoreEntity):
 
     def _ensure_idle(self) -> None:
         if self.appliance.status.cooking:
-            raise ServiceValidationError("Stop the cook before changing this setting")
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="stop_cook_first"
+            )
 
     def _changed(self) -> None:
         self.coordinator.async_update_listeners()

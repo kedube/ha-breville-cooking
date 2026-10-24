@@ -24,8 +24,9 @@ from .const import (
     ATTR_LEVEL,
     ATTR_MODE,
     ATTR_TEMPERATURE,
+    DOMAIN,
 )
-from .entity import BrevilleEntity
+from .entity import BrevilleEntity, async_add_appliance_entities
 from .select import LEVEL_OPTIONS
 
 PARALLEL_UPDATES = 1
@@ -36,19 +37,23 @@ async def async_setup_entry(
     entry: BrevilleConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    coordinator = entry.runtime_data
-    entities: list[BrevilleSwitch] = []
-    for appliance in coordinator.appliances.values():
-        entities.append(CookSwitch(coordinator, appliance, "cook"))
-        entities.append(AutoStartTimerSwitch(coordinator, appliance, "auto_start_timer"))
+    def entities_for(coordinator, appliance) -> list[BrevilleSwitch]:
+        entities: list[BrevilleSwitch] = [
+            CookSwitch(coordinator, appliance, "cook"),
+            AutoStartTimerSwitch(coordinator, appliance, "auto_start_timer"),
+        ]
         if appliance.model == MODEL_BOV950:
             entities.append(KeepWarmSwitch(coordinator, appliance, "keep_warm"))
-    async_add_entities(entities)
+        return entities
+
+    async_add_appliance_entities(entry, async_add_entities, entities_for)
 
 
 class BrevilleSwitch(BrevilleEntity, SwitchEntity):
     async def async_start_cook_service(self, **kwargs: Any) -> None:
-        raise ServiceValidationError("Target the appliance's Cook switch")
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="target_cook_switch"
+        )
 
 
 class CookSwitch(BrevilleSwitch):
@@ -70,7 +75,9 @@ class CookSwitch(BrevilleSwitch):
         settings = replace(appliance.settings)
         if (mode := kwargs.get(ATTR_MODE)) is not None:
             if appliance.model != MODEL_BOV950:
-                raise ServiceValidationError("Modes apply to the oven only")
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN, translation_key="mode_oven_only"
+                )
             defaults = oven_mode_defaults(OVEN_MODES[mode])
             defaults.auto_start_timer = settings.auto_start_timer
             defaults.keep_warm = settings.keep_warm
@@ -89,7 +96,11 @@ class CookSwitch(BrevilleSwitch):
             mode = OVEN_MODES.get(settings.mode or "")
             levels = LEVEL_OPTIONS.get(mode.type, {}) if mode else {}
             if level not in levels:
-                raise ServiceValidationError(f"Level {level!r} doesn't apply to this mode")
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="level_not_for_mode",
+                    translation_placeholders={"level": level},
+                )
             settings.level = int(levels[level])
         if ATTR_AUTO_START_TIMER in kwargs:
             settings.auto_start_timer = kwargs[ATTR_AUTO_START_TIMER]
@@ -106,7 +117,7 @@ class BrevilleOptionSwitch(BrevilleSwitch, RestoreEntity):
 
     @property
     def available(self) -> bool:
-        return self.coordinator.connected
+        return self.cloud_available
 
     @property
     def is_on(self) -> bool:

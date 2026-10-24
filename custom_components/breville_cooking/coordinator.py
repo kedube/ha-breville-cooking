@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Awaitable
+import contextlib
 from dataclasses import dataclass, field
 import logging
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -11,9 +13,14 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import aiohttp
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    HomeAssistantError,
+    ServiceValidationError,
+)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import (
     ApplianceSocket,
@@ -36,7 +43,9 @@ from .appliance import (
 )
 from .const import (
     APPLIANCE_REFRESH_INTERVAL,
+    CONF_ALLOW_UNTESTED_CONTROL,
     DOMAIN,
+    MESSAGE_LOG_SIZE,
     WS_RECONNECT_FACTOR,
     WS_RECONNECT_MAX,
     WS_RECONNECT_MIN,
@@ -60,6 +69,12 @@ class Appliance:
     settings: CookSettings
     state: dict[str, Any] = field(default_factory=dict)
     status: ApplianceStatus = field(default_factory=ApplianceStatus)
+    # False once the appliance list no longer includes it.
+    on_account: bool = True
+    # Raw websocket messages, newest last, for diagnostics.
+    messages: deque[dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=MESSAGE_LOG_SIZE)
+    )
 
 
 class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
@@ -93,6 +108,7 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
             raise UpdateFailed(f"Error fetching appliances: {err}") from err
 
         added = []
+        listed: set[str] = set()
         for raw in result["appliances"]:
             serial, model = raw.get("serialNumber"), raw.get("model")
             if not serial:
@@ -102,6 +118,7 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
                     self._unsupported.add(serial)
                     _LOGGER.info("Ignoring unsupported appliance model %s", model)
                 continue
+            listed.add(serial)
             if (appliance := self.appliances.get(serial)) is None:
                 appliance = self.appliances[serial] = Appliance(
                     serial, model, raw.get("name"), raw.get("itemNumber"),
@@ -110,10 +127,22 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
                 added.append(appliance)
             elif raw.get("name"):
                 appliance.name = raw["name"]
+        # Appliances that left the account go unavailable; their devices can
+        # then be deleted (async_remove_config_entry_device).
+        for serial, appliance in self.appliances.items():
+            appliance.on_account = serial in listed
         if added and self._socket is not None and self._socket.connected:
             for appliance in added:
                 await self._socket.subscribe(appliance.serial, appliance.model)
         return self.appliances
+
+    async def async_remove_appliance(self, serial: str) -> None:
+        """Forget an appliance whose device was deleted."""
+        if self.appliances.pop(serial, None) is None:
+            return
+        if self._socket is not None and self._socket.connected:
+            with contextlib.suppress(BrevilleError, aiohttp.ClientError):
+                await self._socket.unsubscribe(serial)
 
     # -- websocket -----------------------------------------------------------
 
@@ -160,6 +189,13 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
 
     @callback
     def _handle_message(self, msg: Any) -> None:
+        # Keep every message for the appliance, even ones that are ignored or
+        # out of date: the sequence is what diagnostics are for.
+        serial = msg.get("serialNumber") if isinstance(msg, dict) else None
+        if (logged := self.appliances.get(serial)) is not None:
+            logged.messages.append(
+                {"at": dt_util.utcnow().isoformat(timespec="seconds"), "message": msg}
+            )
         update = parse_message(msg)
         if update is None or (appliance := self.appliances.get(update.serial)) is None:
             return
@@ -180,13 +216,32 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
 
     # -- commands --------------------------------------------------------------
 
+    def control_allowed(self, appliance: Appliance) -> bool:
+        """Whether cooks may be started or changed (stopping always is)."""
+        return MODELS[appliance.model].tested or bool(
+            self.config_entry.options.get(CONF_ALLOW_UNTESTED_CONTROL)
+        )
+
+    def _ensure_control_allowed(self, appliance: Appliance) -> None:
+        if not self.control_allowed(appliance):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="untested_control",
+                translation_placeholders={"product": MODELS[appliance.model].product},
+            )
+
     async def async_start_cook(
         self, appliance: Appliance, settings: CookSettings | None = None
     ) -> None:
+        self._ensure_control_allowed(appliance)
         try:
             steps = build_manual_steps(appliance.model, settings or appliance.settings)
         except ValueError as err:
-            raise HomeAssistantError(f"Can't start the cook: {err}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="start_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
         await self._call(
             self.client.load_manual_recipe(
                 appliance.serial,
@@ -208,6 +263,7 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         )
 
     async def async_finish_wait(self, appliance: Appliance) -> None:
+        self._ensure_control_allowed(appliance)
         await self._call(self.client.finish_wait(appliance.serial, appliance.model))
 
     async def async_edit_cook(
@@ -217,13 +273,18 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         temperature_c: float | None = None,
         duration_s: int | None = None,
     ) -> None:
+        self._ensure_control_allowed(appliance)
         try:
             edit = build_edit(
                 appliance.model, appliance.state, appliance.status,
                 temperature_c=temperature_c, duration_s=duration_s,
             )
         except ValueError as err:
-            raise HomeAssistantError(f"Can't change the cook: {err}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="edit_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
         if edit.csj_program is not None:
             await self._call(
                 self.client.csj_update_program(appliance.serial, edit.csj_program)
@@ -242,10 +303,14 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         except BrevilleAuthError as err:
             self.config_entry.async_start_reauth(self.hass)
             raise HomeAssistantError(
-                "The Breville login has expired; re-authenticate the integration"
+                translation_domain=DOMAIN, translation_key="auth_expired"
             ) from err
         except (BrevilleError, aiohttp.ClientError, TimeoutError) as err:
-            raise HomeAssistantError(f"Breville cloud request failed: {err}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="request_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
     def _locale(self) -> str:
         language = self.hass.config.language or "en"

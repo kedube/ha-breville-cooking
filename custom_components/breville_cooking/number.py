@@ -24,7 +24,7 @@ from .appliance import (
     duration_limits,
     temp_limits,
 )
-from .entity import BrevilleEntity
+from .entity import BrevilleEntity, async_add_appliance_entities
 
 PARALLEL_UPDATES = 1
 
@@ -34,14 +34,13 @@ async def async_setup_entry(
     entry: BrevilleConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    coordinator = entry.runtime_data
-    async_add_entities(
-        entity
-        for appliance in coordinator.appliances.values()
-        for entity in (
+    async_add_appliance_entities(
+        entry,
+        async_add_entities,
+        lambda coordinator, appliance: (
             TargetTemperatureNumber(coordinator, appliance, "target_temperature"),
             CookTimeNumber(coordinator, appliance, "cook_time"),
-        )
+        ),
     )
 
 

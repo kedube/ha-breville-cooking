@@ -20,7 +20,7 @@ from homeassistant.helpers.typing import StateType
 from . import BrevilleConfigEntry
 from .appliance import ERROR_OPTIONS, MODEL_BOV950, REPORTED_MODE_OPTIONS, CookState
 from .coordinator import Appliance
-from .entity import BrevilleEntity
+from .entity import BrevilleEntity, async_add_appliance_entities
 
 PARALLEL_UPDATES = 0
 
@@ -83,12 +83,14 @@ async def async_setup_entry(
     entry: BrevilleConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    coordinator = entry.runtime_data
-    async_add_entities(
-        BrevilleSensor(coordinator, appliance, description)
-        for appliance in coordinator.appliances.values()
-        for description in SENSORS
-        if description.models is None or appliance.model in description.models
+    async_add_appliance_entities(
+        entry,
+        async_add_entities,
+        lambda coordinator, appliance: (
+            BrevilleSensor(coordinator, appliance, description)
+            for description in SENSORS
+            if description.models is None or appliance.model in description.models
+        ),
     )
 
 
@@ -102,7 +104,7 @@ class BrevilleSensor(BrevilleEntity, SensorEntity):
     @property
     def available(self) -> bool:
         if self.entity_description.always_available:
-            return self.coordinator.connected
+            return self.cloud_available
         return super().available
 
     @property

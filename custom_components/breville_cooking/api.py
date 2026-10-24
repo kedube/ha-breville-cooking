@@ -14,8 +14,10 @@ import json
 import logging
 import time
 import uuid
+from collections import deque
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import IntEnum
 from typing import Any
 
@@ -24,6 +26,9 @@ import aiohttp
 _LOGGER = logging.getLogger(__name__)
 
 APP_CHANNEL = "brevilleJoule"
+# Sage, the brand in the UK and Europe, has its own app on the same cloud.
+SAGE_APP_CHANNEL = "sageJoule"
+SAGE_CLIENT_ID = "Vp1NuYQ76uhbslASYk0iRRbeHUIsrGDa"
 MODEL_CSJ100 = "CSJ100"
 
 # CSJ100 manual cook limits from the app's csj100ModeConfigs.
@@ -59,10 +64,13 @@ class CsjProgramStep(IntEnum):
 WS_PING_AFTER_IDLE = 15.0
 WS_IDLE_CHECK_INTERVAL = 5.0
 
+# Recent REST requests kept for diagnostics.
+REQUEST_LOG_SIZE = 20
+
 
 @dataclass(frozen=True)
 class Endpoints:
-    """Breville production endpoints (Breville brand, not Sage)."""
+    """Production endpoints for the Breville brand; see BRANDS for Sage."""
 
     token_url: str = "https://my.breville.com/oauth/token"
     client_id: str = "A2IYXGeuX1g8s049YEri6WC6hu2wlrMZ"
@@ -72,6 +80,16 @@ class Endpoints:
     user_api: str = "https://iot-api.breville.com/user"
     control_api: str = "https://iot-api.breville.com/appliance/v1"
     websocket: str = "wss://iot-api-ws.breville.com/applianceProxy"
+    # Sent as the REST "app" header and in websocket subscriptions.
+    app_channel: str = APP_CHANNEL
+
+
+# The Sage app logs in the same way with its own Auth0 client (from the app's
+# brand configs); everything else is shared. Untested with a Sage account.
+BRANDS: dict[str, Endpoints] = {
+    "breville": Endpoints(),
+    "sage": Endpoints(client_id=SAGE_CLIENT_ID, app_channel=SAGE_APP_CHANNEL),
+}
 
 
 class ProgramType(IntEnum):
@@ -326,10 +344,16 @@ class BrevilleClient:
         self._endpoints = endpoints
         self._on_tokens_updated = on_tokens_updated
         self._refresh_lock = asyncio.Lock()
+        self._request_log: deque[dict[str, Any]] = deque(maxlen=REQUEST_LOG_SIZE)
 
     @property
     def tokens(self) -> Tokens | None:
         return self._tokens
+
+    @property
+    def recent_requests(self) -> list[dict[str, Any]]:
+        """The last few REST requests, oldest first. Unredacted."""
+        return list(self._request_log)
 
     @property
     def endpoints(self) -> Endpoints:
@@ -414,19 +438,35 @@ class BrevilleClient:
             "Accept": "application/json",
             "sf-id-token": token,
             "Authorization": f"Bearer {token}",
-            "app": APP_CHANNEL,
+            "app": self._endpoints.app_channel,
         }
         kwargs: dict[str, Any] = {"headers": headers}
         if body is not None:
             kwargs["json"] = body
-        async with self._session.request(method, url, **kwargs) as resp:
-            data = await _read_body(resp)
-            if resp.status == 401 and _retry:
-                await self.id_token(force_refresh=True)
-                return await self.request(method, url, body, _retry=False)
-            if resp.status >= 400:
-                raise BrevilleApiError(method, url, resp.status, data)
-            return data
+        # Path IDs (serial, user) stay out of the log: only the last segment.
+        record: dict[str, Any] = {
+            "at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "method": method,
+            "endpoint": url.rsplit("/", 1)[-1],
+            "body": body,
+        }
+        self._request_log.append(record)
+        try:
+            async with self._session.request(method, url, **kwargs) as resp:
+                status = resp.status
+                data = await _read_body(resp)
+        except (aiohttp.ClientError, TimeoutError) as err:
+            record["error"] = repr(err)
+            raise
+        record["status"] = status
+        if method != "GET":  # GET responses are account details, not command results
+            record["response"] = data
+        if status == 401 and _retry:
+            await self.id_token(force_refresh=True)
+            return await self.request(method, url, body, _retry=False)
+        if status >= 400:
+            raise BrevilleApiError(method, url, status, data)
+        return data
 
     async def get_appliances(self) -> dict[str, Any]:
         """Return {"appliances": [...], "ownedModels": [...]} for the account."""
@@ -582,7 +622,7 @@ class ApplianceSocket:
             {
                 "action": "addAppliance",
                 "serialNumber": serial,
-                "app": APP_CHANNEL,
+                "app": self._client.endpoints.app_channel,
                 "model": model,
             }
         )

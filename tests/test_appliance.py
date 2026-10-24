@@ -153,6 +153,20 @@ class TestTaskEngine:
         shadow = {**OVEN_SHADOW, "state": state, "heaters": [{"state": heater}]}
         assert parse_status(MODEL_BOV950, shadow).state is expected
 
+    @pytest.mark.parametrize(
+        ("timestamp", "expected"),
+        [
+            (NOW.timestamp() - 120, 780),  # sampled 2 minutes ago: 2 minutes less left
+            (NOW.timestamp() - 2000, 0),  # finished since it was sampled
+            (NOW.timestamp() * 1000, 900),  # milliseconds: impossible, so use `now`
+        ],
+    )
+    def test_running_timer_corrects_for_sample_time(self, timestamp: float, expected: int) -> None:
+        timer = {"id": 1, "state": 1, "down_from_n": 1080, "now": 900, "timestamp": timestamp}
+        status = parse_status(MODEL_BOV950, {**OVEN_SHADOW, "timers": [timer]}, NOW)
+        assert status.time_remaining_s == expected
+        assert (status.ends_at is None) == (expected == 0)
+
     def test_skip_timer_value_means_no_timer(self) -> None:
         shadow = {**OVEN_SHADOW, "timers": [{"id": 1, "state": 1, "down_from_n": 388803, "now": 5}]}
         assert parse_status(MODEL_BOV950, shadow).time_remaining_s is None

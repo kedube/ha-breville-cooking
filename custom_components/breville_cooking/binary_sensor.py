@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import BrevilleConfigEntry
 from .appliance import MODEL_BOV950
 from .coordinator import Appliance
-from .entity import BrevilleEntity
+from .entity import BrevilleEntity, async_add_appliance_entities
 
 PARALLEL_UPDATES = 0
 
@@ -52,12 +52,14 @@ async def async_setup_entry(
     entry: BrevilleConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    coordinator = entry.runtime_data
-    async_add_entities(
-        BrevilleBinarySensor(coordinator, appliance, description)
-        for appliance in coordinator.appliances.values()
-        for description in BINARY_SENSORS
-        if description.models is None or appliance.model in description.models
+    async_add_appliance_entities(
+        entry,
+        async_add_entities,
+        lambda coordinator, appliance: (
+            BrevilleBinarySensor(coordinator, appliance, description)
+            for description in BINARY_SENSORS
+            if description.models is None or appliance.model in description.models
+        ),
     )
 
 

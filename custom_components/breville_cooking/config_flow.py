@@ -9,17 +9,49 @@ from typing import Any
 import aiohttp
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
-from .api import BrevilleAuthError, BrevilleClient, BrevilleError, BrevilleMfaRequired, Tokens
-from .const import DOMAIN
+from .api import (
+    BRANDS,
+    BrevilleAuthError,
+    BrevilleClient,
+    BrevilleError,
+    BrevilleMfaRequired,
+    Tokens,
+)
+from .const import (
+    BRAND_BREVILLE,
+    BRAND_SAGE,
+    CONF_ALLOW_UNTESTED_CONTROL,
+    CONF_BRAND,
+    DOMAIN,
+    SAGE_COUNTRIES,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-USER_SCHEMA = vol.Schema({vol.Required(CONF_EMAIL): str, vol.Required(CONF_PASSWORD): str})
+BRAND_SELECTOR = SelectSelector(
+    SelectSelectorConfig(
+        options=[BRAND_BREVILLE, BRAND_SAGE],
+        translation_key=CONF_BRAND,
+        mode=SelectSelectorMode.LIST,
+    )
+)
 REAUTH_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): str})
+OPTIONS_SCHEMA = vol.Schema({vol.Required(CONF_ALLOW_UNTESTED_CONTROL, default=False): bool})
 
 
 class BrevilleConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -27,8 +59,15 @@ class BrevilleConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def _login(self, email: str, password: str) -> tuple[Tokens | None, dict[str, str]]:
-        client = BrevilleClient(async_get_clientsession(self.hass))
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> BrevilleOptionsFlow:
+        return BrevilleOptionsFlow()
+
+    async def _login(
+        self, email: str, password: str, brand: str
+    ) -> tuple[Tokens | None, dict[str, str]]:
+        client = BrevilleClient(async_get_clientsession(self.hass), endpoints=BRANDS[brand])
         try:
             return await client.login(email, password), {}
         except BrevilleMfaRequired:
@@ -46,18 +85,38 @@ class BrevilleConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            tokens, errors = await self._login(user_input[CONF_EMAIL], user_input[CONF_PASSWORD])
+            tokens, errors = await self._login(
+                user_input[CONF_EMAIL], user_input[CONF_PASSWORD], user_input[CONF_BRAND]
+            )
             if tokens:
                 await self.async_set_unique_id(tokens.user_id)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=user_input[CONF_EMAIL],
-                    data={CONF_EMAIL: user_input[CONF_EMAIL], **tokens.as_dict()},
+                    data={
+                        CONF_EMAIL: user_input[CONF_EMAIL],
+                        CONF_BRAND: user_input[CONF_BRAND],
+                        **tokens.as_dict(),
+                    },
                 )
+        # The brand people most likely have where they are.
+        brand = BRAND_SAGE if self.hass.config.country in SAGE_COUNTRIES else BRAND_BREVILLE
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_EMAIL): str,
+                vol.Required(CONF_PASSWORD): str,
+                vol.Required(CONF_BRAND, default=brand): BRAND_SELECTOR,
+            }
+        )
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(
-                USER_SCHEMA, {CONF_EMAIL: (user_input or {}).get(CONF_EMAIL)}
+                schema,
+                {
+                    key: value
+                    for key in (CONF_EMAIL, CONF_BRAND)
+                    if (value := (user_input or {}).get(key)) is not None
+                },
             ),
             errors=errors,
         )
@@ -71,7 +130,11 @@ class BrevilleConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            tokens, errors = await self._login(entry.data[CONF_EMAIL], user_input[CONF_PASSWORD])
+            tokens, errors = await self._login(
+                entry.data[CONF_EMAIL],
+                user_input[CONF_PASSWORD],
+                entry.data.get(CONF_BRAND, BRAND_BREVILLE),
+            )
             if tokens:
                 await self.async_set_unique_id(tokens.user_id)
                 self._abort_if_unique_id_mismatch(reason="wrong_account")
@@ -83,4 +146,20 @@ class BrevilleConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=REAUTH_SCHEMA,
             description_placeholders={"email": entry.data[CONF_EMAIL]},
             errors=errors,
+        )
+
+
+class BrevilleOptionsFlow(OptionsFlow):
+    """Whether appliances nobody has tested yet may be controlled."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                OPTIONS_SCHEMA, self.config_entry.options
+            ),
         )
