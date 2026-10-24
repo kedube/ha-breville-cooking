@@ -1,5 +1,8 @@
 {
   "config": {
+    "initiate_flow": {
+      "user": "添加账户"
+    },
     "step": {
       "user": {
         "title": "Breville+ Cooking",

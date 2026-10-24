@@ -51,3 +51,12 @@ async def test_home_assistant_loads_translations(
 ) -> None:
     translations = await async_get_translations(hass, language, "entity", {DOMAIN})
     assert translations[f"component.{DOMAIN}.entity.sensor.status.state.cooking"] == expected
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"), [("en", "Add account"), ("de", "Konto hinzufügen")]
+)
+async def test_add_button_label(hass: HomeAssistant, language: str, expected: str) -> None:
+    """The integration page's add button shows config.initiate_flow.user instead of "Add hub"."""
+    translations = await async_get_translations(hass, language, "config", {DOMAIN})
+    assert translations[f"component.{DOMAIN}.config.initiate_flow.user"] == expected
