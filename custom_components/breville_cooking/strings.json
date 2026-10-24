@@ -225,7 +225,7 @@
   "services": {
     "start_cook": {
       "name": "Start cook",
-      "description": "Starts a cook with the given settings. Anything left out uses the appliance's current settings.",
+      "description": "Starts a cook with the given settings. Target the appliance's Cook switch. Anything left out uses the appliance's current settings.",
       "fields": {
         "temperature": {
           "name": "Temperature",
@@ -237,7 +237,7 @@
         },
         "mode": {
           "name": "Mode",
-          "description": "Oven mode (Joule Oven Air Fryer Pro only). Resets the other oven settings to that mode's defaults."
+          "description": "Oven mode (Joule Oven Air Fryer Pro only). Settings you leave out use this mode's defaults."
         },
         "convection": {
           "name": "Convection",
@@ -245,7 +245,7 @@
         },
         "level": {
           "name": "Level",
-          "description": "Broil intensity or slow-cook level."
+          "description": "Broil intensity (Low, Medium or High) or slow-cook level (Low or High)."
         },
         "auto_start_timer": {
           "name": "Start timer automatically",

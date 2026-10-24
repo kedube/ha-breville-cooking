@@ -48,7 +48,4 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # Brand images come from the home-assistant/brands repository,
-          # which this integration hasn't been added to.
-          ignore: brands
           comment: false
