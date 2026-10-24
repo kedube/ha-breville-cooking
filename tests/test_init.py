@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Generator
 from datetime import timedelta
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,7 +17,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.breville_cooking.api import BrevilleAuthError, BrevilleClient
+from custom_components.breville_cooking.api import BrevilleAuthError
 from custom_components.breville_cooking.const import DOMAIN
 from custom_components.breville_cooking.diagnostics import async_get_config_entry_diagnostics
 

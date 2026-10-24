@@ -1,0 +1,60 @@
+# Run by hand from the Actions tab, on main. Once CI passes, each run raises
+# the version by 0.01 (0.00 -> 0.01 ... 0.99 -> 1.00), then commits, tags and
+# publishes it. Tags are the bare version, with no "v" in front.
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+
+jobs:
+  ci:
+    name: CI
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Release
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Fetch the tags too, so that an existing tag fails the run early.
+          fetch-depth: 0
+
+      - name: Bump version
+        id: version
+        run: |
+          version=$(python3 scripts/bump_version.py --write)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --message "Release $VERSION" custom_components/breville_cooking/manifest.json
+          git tag --annotate "$VERSION" --message "Release $VERSION"
+          # The commit and the tag land together, or neither does.
+          git push --atomic origin HEAD:main "refs/tags/$VERSION"
+
+      - name: Build zip
+        working-directory: custom_components/breville_cooking
+        run: zip -r "$GITHUB_WORKSPACE/breville_cooking.zip" .
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: >-
+          gh release create "$VERSION" breville_cooking.zip
+          --title "$VERSION" --generate-notes --verify-tag

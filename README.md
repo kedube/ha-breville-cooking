@@ -19,8 +19,10 @@ If you have a BSV600 or BOV950, please try it and open an issue with your
 **HACS:** add `https://github.com/kedube/ha-breville-cooking` as a custom
 repository (type *Integration*), install **Breville+ Cooking** and restart.
 
-**Manually:** copy `custom_components/breville_cooking` into your
-`config/custom_components` folder and restart.
+**Manually:** unzip `breville_cooking.zip` from the
+[latest release](https://github.com/kedube/ha-breville-cooking/releases/latest)
+into `config/custom_components/breville_cooking` (or copy that folder from
+this repository) and restart.
 
 Then go to **Settings → Devices & services → Add integration → Breville+
 Cooking** and log in with your Breville+ account. Home Assistant keeps a login
@@ -85,8 +87,23 @@ what's needed to support a new model or firmware.
 ## Development
 
 ```sh
-python3 -m pytest              # needs pytest-homeassistant-custom-component
+python3 -m pip install -r requirements_test.txt
+python3 -m pytest
+python3 -m pip install ruff==0.15.17 && python3 -m ruff check .
 ```
+
+CI runs these, plus Home Assistant's hassfest and the HACS checks, on every
+pull request and push to `main`.
+
+### Releasing
+
+Releases are made by hand: on GitHub, open **Actions → Release → Run
+workflow** and run it on `main`. After CI passes, the workflow raises the
+version in `manifest.json` by 0.01 (0.00 → 0.01, …, 0.99 → 1.00) and commits it
+to `main`. It then tags that commit with the bare version (`0.01`, no `v`) and
+publishes a GitHub release with generated notes and `breville_cooking.zip`,
+which HACS offers as an update. To preview the next version, run
+`python3 scripts/bump_version.py`.
 
 `scripts/breville_probe.py` talks to the Breville cloud directly, without Home
 Assistant, and logs every request and websocket message (redacted) to
