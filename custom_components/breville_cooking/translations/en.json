@@ -1,0 +1,261 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Breville+ Cooking",
+        "description": "Log in with the account you use in the Breville+ Cooking app.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        },
+        "data_description": {
+          "email": "The email address of your Breville account.",
+          "password": "Your password is only sent to Breville. Home Assistant keeps a login session, not the password."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Log in again",
+        "description": "Your Breville session for {email} has expired. Enter your password to continue.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Wrong email or password.",
+      "cannot_connect": "Couldn't reach Breville. Try again later.",
+      "mfa_not_supported": "This account uses multi-factor authentication, which isn't supported yet.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This Breville account is already set up.",
+      "reauth_successful": "Logged in again.",
+      "wrong_account": "That's a different Breville account from the one set up here."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "offline": "Offline",
+          "idle": "Idle",
+          "preheating": "Preheating",
+          "ready": "Ready for food",
+          "cooking": "Cooking",
+          "done": "Done",
+          "keeping_warm": "Keeping warm",
+          "waiting_for_button": "Press the button on the appliance",
+          "error": "Error",
+          "updating": "Updating"
+        }
+      },
+      "current_temperature": {
+        "name": "Temperature"
+      },
+      "time_remaining": {
+        "name": "Time remaining"
+      },
+      "cook_end": {
+        "name": "Cook end"
+      },
+      "active_mode": {
+        "name": "Active mode",
+        "state": {
+          "bake": "Bake",
+          "air_fry": "Air fry",
+          "roast": "Roast",
+          "broil": "Broil",
+          "pizza": "Pizza",
+          "cookies": "Cookies",
+          "reheat": "Reheat",
+          "slow_cook": "Slow cook",
+          "proof": "Proof",
+          "warm": "Warm",
+          "dehydrate": "Dehydrate",
+          "bottom_bake": "Bottom bake",
+          "gentle_broil": "Crispier air fry",
+          "bottom_broil": "Bottom broil",
+          "outer_top_broil": "Outer broil",
+          "middle_top_broil": "Middle top broil",
+          "windy_broil": "Convection broil",
+          "toast": "Toast",
+          "bagel": "Bagel",
+          "keep_warm": "Keep warm",
+          "sous_vide": "Sous vide",
+          "turbo": "Turbo sous vide",
+          "crispy_reheat": "Crispy reheat"
+        }
+      },
+      "error": {
+        "name": "Error",
+        "state": {
+          "none": "None",
+          "other": "Other",
+          "button_pressed": "Stopped with the button",
+          "low_water_level": "Low water level",
+          "tipped_over": "Tipped over",
+          "overheating": "Overheating",
+          "power_loss": "Power loss",
+          "heater_thermistor_failure": "Heater sensor failure",
+          "bath_thermistor_failure": "Water sensor failure",
+          "stuck_motor": "Stuck motor",
+          "firmware_crash": "Firmware crash",
+          "bad_motor": "Motor fault",
+          "water_leakage": "Water leak",
+          "current_leakage": "Electrical leak",
+          "heater_broken": "Heater fault",
+          "door_open": "Door open"
+        }
+      }
+    },
+    "binary_sensor": {
+      "cooking": {
+        "name": "Cooking"
+      },
+      "door": {
+        "name": "Door"
+      },
+      "problem": {
+        "name": "Problem"
+      }
+    },
+    "number": {
+      "target_temperature": {
+        "name": "Target temperature"
+      },
+      "cook_time": {
+        "name": "Cook time"
+      }
+    },
+    "select": {
+      "oven_mode": {
+        "name": "Mode",
+        "state": {
+          "bake": "Bake",
+          "air_fry": "Air fry",
+          "roast": "Roast",
+          "broil": "Broil",
+          "pizza": "Pizza",
+          "cookies": "Cookies",
+          "reheat": "Reheat",
+          "slow_cook": "Slow cook",
+          "proof": "Proof",
+          "warm": "Warm",
+          "dehydrate": "Dehydrate",
+          "bottom_bake": "Bottom bake",
+          "gentle_broil": "Crispier air fry",
+          "bottom_broil": "Bottom broil",
+          "outer_top_broil": "Outer broil",
+          "middle_top_broil": "Middle top broil",
+          "windy_broil": "Convection broil"
+        }
+      },
+      "convection": {
+        "name": "Convection",
+        "state": {
+          "off": "Off",
+          "on": "On",
+          "super": "Super"
+        }
+      },
+      "level": {
+        "name": "Level",
+        "state": {
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      }
+    },
+    "switch": {
+      "cook": {
+        "name": "Cook"
+      },
+      "auto_start_timer": {
+        "name": "Start timer automatically"
+      },
+      "keep_warm": {
+        "name": "Keep warm"
+      }
+    },
+    "button": {
+      "continue": {
+        "name": "Continue"
+      }
+    }
+  },
+  "selector": {
+    "oven_mode": {
+      "options": {
+        "bake": "Bake",
+        "air_fry": "Air fry",
+        "roast": "Roast",
+        "broil": "Broil",
+        "pizza": "Pizza",
+        "cookies": "Cookies",
+        "reheat": "Reheat",
+        "slow_cook": "Slow cook",
+        "proof": "Proof",
+        "warm": "Warm",
+        "dehydrate": "Dehydrate",
+        "bottom_bake": "Bottom bake",
+        "gentle_broil": "Crispier air fry",
+        "bottom_broil": "Bottom broil",
+        "outer_top_broil": "Outer broil",
+        "middle_top_broil": "Middle top broil",
+        "windy_broil": "Convection broil"
+      }
+    },
+    "convection": {
+      "options": {
+        "off": "Off",
+        "on": "On",
+        "super": "Super"
+      }
+    },
+    "level": {
+      "options": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      }
+    }
+  },
+  "services": {
+    "start_cook": {
+      "name": "Start cook",
+      "description": "Starts a cook with the given settings. Anything left out uses the appliance's current settings.",
+      "fields": {
+        "temperature": {
+          "name": "Temperature",
+          "description": "Target temperature, in your Home Assistant temperature unit."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Cook time. For sous vide, leave it out to hold the temperature until stopped."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "Oven mode (Joule Oven Air Fryer Pro only). Resets the other oven settings to that mode's defaults."
+        },
+        "convection": {
+          "name": "Convection",
+          "description": "Oven fan setting, if the mode allows it."
+        },
+        "level": {
+          "name": "Level",
+          "description": "Broil intensity or slow-cook level."
+        },
+        "auto_start_timer": {
+          "name": "Start timer automatically",
+          "description": "Start the timer once the temperature is reached instead of waiting for the food to go in."
+        },
+        "keep_warm": {
+          "name": "Keep warm",
+          "description": "Keep the food warm when an oven cook finishes."
+        }
+      }
+    }
+  }
+}

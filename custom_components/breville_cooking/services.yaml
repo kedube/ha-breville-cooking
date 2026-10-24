@@ -1,0 +1,60 @@
+start_cook:
+  target:
+    entity:
+      integration: breville_cooking
+      domain: switch
+  fields:
+    temperature:
+      selector:
+        number:
+          min: 20
+          max: 480
+          step: 0.5
+          mode: box
+    duration:
+      selector:
+        duration:
+    mode:
+      selector:
+        select:
+          translation_key: oven_mode
+          options:
+            - bake
+            - air_fry
+            - roast
+            - broil
+            - pizza
+            - cookies
+            - reheat
+            - slow_cook
+            - proof
+            - warm
+            - dehydrate
+            - bottom_bake
+            - gentle_broil
+            - bottom_broil
+            - outer_top_broil
+            - middle_top_broil
+            - windy_broil
+    convection:
+      selector:
+        select:
+          translation_key: convection
+          options:
+            - "off"
+            - "on"
+            - super
+    level:
+      selector:
+        select:
+          translation_key: level
+          options:
+            - low
+            - medium
+            - high
+    auto_start_timer:
+      selector:
+        boolean:
+    keep_warm:
+      selector:
+        boolean:

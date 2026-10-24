@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.venv/
+# Probe captures contain appliance serial numbers and account details.
+probe-output/

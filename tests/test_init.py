@@ -1,0 +1,306 @@
+"""Integration setup, live updates and commands, with the cloud client mocked."""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Generator
+from datetime import timedelta
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.breville_cooking.api import BrevilleAuthError, BrevilleClient
+from custom_components.breville_cooking.const import DOMAIN
+from custom_components.breville_cooking.diagnostics import async_get_config_entry_diagnostics
+
+from .common import make_jwt
+
+JOULE, OVEN = "180314080", "A950123456"
+APPLIANCES = {
+    "appliances": [
+        {"model": "CSJ100", "serialNumber": JOULE, "name": "Annisquam", "itemNumber": "CS10001"},
+        {"model": "BOV950", "serialNumber": OVEN, "name": "Kitchen Oven", "itemNumber": "BOV950BSS"},
+        {"model": "BES995", "serialNumber": "espresso1", "name": "Espresso"},
+    ],
+    "ownedModels": ["CSJ100", "BOV950", "BES995"],
+}
+
+
+class FakeSocket:
+    """Stands in for ApplianceSocket; tests push messages into it."""
+
+    def __init__(self) -> None:
+        self.queue: asyncio.Queue[Any] = asyncio.Queue()
+        self.subscribed: list[tuple[str, str]] = []
+        self.connected = False
+        self.connect_error: Exception | None = None
+
+    async def connect(self) -> None:
+        if self.connect_error:
+            raise self.connect_error
+        self.connected = True
+
+    async def subscribe(self, serial: str, model: str) -> None:
+        self.subscribed.append((serial, model))
+
+    async def messages(self):
+        while (msg := await self.queue.get()) is not None:
+            yield msg
+
+    async def close(self) -> None:
+        self.connected = False
+
+
+def csj(state: str, step: int, **extra: Any) -> dict:
+    csj.ts += 1000
+    return {
+        "serialNumber": JOULE,
+        "messageType": "applianceDataPoint",
+        "version": str(1792805500000 + csj.ts),
+        "data": {
+            "state": state, "model": "CSJ100", "programStep": step, "bathTemp": 55.1,
+            "setPoint": 56.0, "cookTime": 300, "timeRemaining": 0, "errorState": 0,
+            "eventReason": 0, "cookId": "cook1", "guideId": "manual_x",
+            "firmwareVersion": "123", "espFirmwareVersion": "52", "hardwareOptions": 1,
+            "timestamp": csj.ts, **extra,
+        },
+    }
+
+
+csj.ts = 1_000_000
+
+OVEN_IDLE = {
+    "serialNumber": OVEN,
+    "messageType": "stateReport",
+    "version": 10,
+    "data": {
+        "reported": {
+            "state": "idle", "model": "BOV950", "heaters": [{"cur_temp": 22.0, "state": 0}],
+            "door": {"state": 1}, "appliance": {"mode": 3}, "errors": [],
+            "firmware": {"comm_mcu": "1.0", "host_mcu": "2.0"},
+        }
+    },
+}
+
+
+@pytest.fixture
+def socket() -> FakeSocket:
+    return FakeSocket()
+
+
+@pytest.fixture
+def client(socket: FakeSocket) -> Generator[MagicMock]:
+    with patch("custom_components.breville_cooking.BrevilleClient", autospec=True) as cls:
+        mock = cls.return_value
+        mock.get_appliances.return_value = APPLIANCES
+        mock.websocket.return_value = socket
+        yield mock
+
+
+async def flush(hass: HomeAssistant) -> None:
+    for _ in range(5):
+        await asyncio.sleep(0)
+    await hass.async_block_till_done()
+
+
+async def push(hass: HomeAssistant, socket: FakeSocket, *messages: dict) -> None:
+    for msg in messages:
+        socket.queue.put_nowait(msg)
+    await flush(hass)
+
+
+@pytest.fixture
+async def entry(hass: HomeAssistant, client: MagicMock, socket: FakeSocket) -> MockConfigEntry:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="Salesforce|1",
+        title="me@example.com",
+        data={"email": "me@example.com", "id_token": make_jwt(), "refresh_token": "refresh"},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await flush(hass)
+    return entry
+
+
+async def call(hass: HomeAssistant, domain: str, service: str, entity_id: str, **data: Any) -> None:
+    await hass.services.async_call(
+        domain, service, {ATTR_ENTITY_ID: entity_id, **data}, blocking=True
+    )
+
+
+async def test_setup_creates_entities_for_supported_models(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket
+) -> None:
+    assert entry.state is ConfigEntryState.LOADED
+    assert socket.subscribed == [(JOULE, "CSJ100"), (OVEN, "BOV950")]
+    registry = er.async_get(hass)
+    joule = {e.entity_id for e in er.async_entries_for_config_entry(registry, entry.entry_id) if e.unique_id.startswith(JOULE)}
+    assert joule == {
+        "sensor.annisquam_status", "sensor.annisquam_temperature", "sensor.annisquam_time_remaining",
+        "sensor.annisquam_cook_end", "sensor.annisquam_error", "binary_sensor.annisquam_cooking",
+        "binary_sensor.annisquam_problem", "number.annisquam_target_temperature",
+        "number.annisquam_cook_time", "switch.annisquam_cook",
+        "switch.annisquam_start_timer_automatically", "button.annisquam_continue",
+    }
+    for entity_id in ("select.kitchen_oven_mode", "select.kitchen_oven_convection",
+                      "binary_sensor.kitchen_oven_door", "sensor.kitchen_oven_active_mode",
+                      "switch.kitchen_oven_keep_warm"):
+        assert registry.async_get(entity_id), entity_id
+    # Connected, but no state from the Joule yet.
+    assert hass.states.get("sensor.annisquam_status").state == "offline"
+    assert hass.states.get("switch.annisquam_cook").state == STATE_UNAVAILABLE
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_joule_cook_lifecycle(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    await push(hass, socket, csj("IDLE", 0, setPoint=None, cookId=None, bathTemp=21.2))
+    assert hass.states.get("sensor.annisquam_status").state == "idle"
+    assert hass.states.get("sensor.annisquam_temperature").state == "21.2"
+    assert hass.states.get("switch.annisquam_cook").state == STATE_OFF
+    assert hass.states.get("button.annisquam_continue").state == STATE_UNAVAILABLE
+
+    # Idle: settings only, no cloud call.
+    await call(hass, "number", "set_value", "number.annisquam_target_temperature", value=55)
+    await call(hass, "number", "set_value", "number.annisquam_cook_time", value=45)
+    client.csj_update_program.assert_not_awaited()
+
+    await call(hass, "switch", "turn_on", "switch.annisquam_cook")
+    serial, model, firmware, steps = client.load_manual_recipe.await_args.args
+    assert (serial, model, firmware) == (JOULE, "CSJ100", {"commFirmware": "52", "ctrlFirmware": "123"})
+    assert steps[0]["holdingTemperature"] == 55.0
+    assert steps[0]["phases"][0]["seconds"] == 2700
+    assert client.load_manual_recipe.await_args.kwargs["locale"] == "en-US"
+
+    await push(hass, socket, csj("ACTIVE", 2))
+    assert hass.states.get("sensor.annisquam_status").state == "ready"
+    assert hass.states.get("switch.annisquam_cook").state == STATE_ON
+    await call(hass, "button", "press", "button.annisquam_continue")
+    client.finish_wait.assert_awaited_once_with(JOULE, "CSJ100")
+
+    await push(hass, socket, csj("ACTIVE", 3, timeRemaining=240))
+    assert hass.states.get("sensor.annisquam_status").state == "cooking"
+    assert float(hass.states.get("sensor.annisquam_time_remaining").state) == 4
+    assert hass.states.get("number.annisquam_cook_time").state == "4"
+    assert hass.states.get("sensor.annisquam_cook_end").state != "unknown"
+
+    # Running: changing the temperature edits the cook, keeping its timer.
+    await call(hass, "number", "set_value", "number.annisquam_target_temperature", value=57)
+    serial, program = client.csj_update_program.await_args.args
+    assert program["setPoint"] == 57.0 and program["cookTime"] == 240
+    assert program["programMetadata"] == {"cookId": "cook1", "guideId": "manual_x"}
+
+    await call(hass, "switch", "turn_off", "switch.annisquam_cook")
+    assert client.stop_recipe.await_args.args == (JOULE, "CSJ100")
+    assert client.stop_recipe.await_args.kwargs["firmware"] == {"commFirmware": "52", "ctrlFirmware": "123"}
+
+    await push(hass, socket, csj("ACTIVE", 5, errorState=2, eventReason=4))
+    assert hass.states.get("binary_sensor.annisquam_problem").state == STATE_ON
+    assert hass.states.get("sensor.annisquam_error").state == "tipped_over"
+
+    await push(hass, socket, csj("OFFLINE", 0))
+    assert hass.states.get("sensor.annisquam_status").state == "offline"
+    assert hass.states.get("number.annisquam_target_temperature").state == STATE_UNAVAILABLE
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_oven_settings_and_start_service(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    await push(hass, socket, OVEN_IDLE)
+    assert hass.states.get("select.kitchen_oven_mode").state == "bake"
+    assert hass.states.get("binary_sensor.kitchen_oven_door").state == STATE_OFF
+    assert hass.states.get("select.kitchen_oven_level").state == STATE_UNAVAILABLE
+
+    await call(hass, "select", "select_option", "select.kitchen_oven_mode", option="air_fry")
+    temp = hass.states.get("number.kitchen_oven_target_temperature")
+    assert (temp.state, temp.attributes["min"], temp.attributes["max"]) == ("205.0", 150, 250)
+    assert hass.states.get("select.kitchen_oven_convection").attributes["options"] == ["super"]
+
+    await call(hass, "select", "select_option", "select.kitchen_oven_mode", option="broil")
+    assert hass.states.get("number.kitchen_oven_target_temperature").state == STATE_UNAVAILABLE
+    await call(hass, "select", "select_option", "select.kitchen_oven_level", option="medium")
+
+    await call(
+        hass, DOMAIN, "start_cook", "switch.kitchen_oven_cook",
+        mode="roast", temperature=190, duration=timedelta(minutes=50),
+    )
+    serial, model, firmware, steps = client.load_manual_recipe.await_args.args
+    assert (serial, model) == (OVEN, "BOV950")
+    assert firmware == {"commFirmware": "1.0", "ctrlFirmware": "2.0"}
+    assert [s["stepType"] for s in steps] == ["default", "default", "aBitMore", "keepWarm"]
+    cook = steps[1]["phases"][0]
+    assert (cook["mode"], cook["temperatureCelsius"], cook["seconds"]) == ("roast", 190, 3000)
+    # The service doesn't change the entities' own settings.
+    assert hass.states.get("select.kitchen_oven_mode").state == "broil"
+
+    with pytest.raises(ServiceValidationError):
+        await call(hass, DOMAIN, "start_cook", "switch.kitchen_oven_keep_warm", temperature=200)
+
+    # Cooking: the mode can't change, and the temperature edits the cook.
+    await push(hass, socket, {
+        "serialNumber": OVEN, "messageType": "changeReport", "version": 11,
+        "data": {"reported": {"state": "active", "cookUUID": "c-9", "currentStep": 1,
+                              "appliance": {"mode": 4},
+                              "heaters": [{"cur_temp": 150, "temp_sp": 190, "state": 2}]}},
+    })
+    assert hass.states.get("sensor.kitchen_oven_active_mode").state == "roast"
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "select", "select_option", "select.kitchen_oven_mode", option="bake")
+    await call(hass, "number", "set_value", "number.kitchen_oven_target_temperature", value=200)
+    client.update_cook.assert_awaited_once_with(
+        OVEN, "BOV950", [{"name": "cookSetPoint", "value": 200.0}], uuid="c-9", step=1
+    )
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_cloud_errors_become_ha_errors(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    from custom_components.breville_cooking.api import BrevilleApiError
+
+    await push(hass, socket, csj("IDLE", 0, setPoint=None, cookId=None))
+    client.load_manual_recipe.side_effect = BrevilleApiError("POST", "u", 500, "oops")
+    with pytest.raises(HomeAssistantError):
+        await call(hass, "switch", "turn_on", "switch.annisquam_cook")
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_websocket_auth_failure_starts_reauth(
+    hass: HomeAssistant, client: MagicMock, socket: FakeSocket
+) -> None:
+    socket.connect_error = BrevilleAuthError("expired")
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id="Salesforce|1",
+        data={"email": "me@example.com", "id_token": make_jwt(), "refresh_token": "r"},
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await flush(hass)
+    flows = hass.config_entries.flow.async_progress()
+    assert [f["context"]["source"] for f in flows] == ["reauth"]
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_diagnostics_redact_tokens(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket
+) -> None:
+    await push(hass, socket, csj("ACTIVE", 3, timeRemaining=100))
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert diag["entry"]["refresh_token"] == "**REDACTED**"
+    assert diag["entry"]["email"] == "**REDACTED**"
+    joule = diag["appliances"][0]
+    assert joule["serial"] == "…4080" and joule["reported"]["cookId"] == "**REDACTED**"
+    await hass.config_entries.async_unload(entry.entry_id)
