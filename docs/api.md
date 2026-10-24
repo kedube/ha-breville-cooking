@@ -14,8 +14,9 @@ so both can be reused elsewhere.
 
 Each part of the API is marked as one of:
 
-- **Verified**: tried on a real Joule (CSJ100: hardware J5, firmware 123, Wi-Fi
-  firmware 52) in October 2026.
+- **Verified**: tried on a real appliance in October 2026: a Joule (CSJ100:
+  hardware J5, firmware 123, Wi-Fi firmware 52), or where it says so, a Joule
+  Oven (BOV950, firmware 1.10.21) baking.
 - **From the app**: read from the app's code. Nobody has tried it on a real
   appliance yet.
 
@@ -169,11 +170,11 @@ Unix time in milliseconds. A successful command returns an empty body, except
 
 | Action | Purpose | Joule (CSJ100) | Joule Turbo (BSV600), Joule Oven (BOV950) |
 |---|---|---|---|
-| [`load-manual-recipe`](#start-a-cook) | Start a cook | Verified | From the app |
+| [`load-manual-recipe`](#start-a-cook) | Start a cook | Verified | Verified on the oven; from the app for the Joule Turbo |
 | [`send-csj-message`](#change-a-joule-cook) | Change a running Joule cook | Verified | Not used |
 | [`update-cook`](#change-a-cook-on-newer-appliances) | Change a running cook | Not used | From the app |
 | [`finish-wait`](#food-in-food-out) | Food is in, or food is out | Verified | From the app |
-| [`stop-recipe`](#stop-a-cook) | Stop the cook | Verified | From the app |
+| [`stop-recipe`](#stop-a-cook) | Stop the cook | Verified | Verified on the oven; from the app for the Joule Turbo |
 
 Several commands include the appliance's firmware, copied from its
 [reported state](#appliance-state):
@@ -252,8 +253,12 @@ Temperatures go from 20 to 92 °C.
 
 #### Joule Oven steps
 
-**From the app.** An oven recipe (`"type": "ovenSteps"`) has these steps, in
-this order:
+**Verified** on a Joule Oven for a bake; other modes are from the app. The
+cloud accepted all four steps of the bake and returned them with `sound`,
+`enableNotification`, `notificationTitle` and `notificationBody` added to each
+phase. The oven then waited for someone to press Start (`physicalButtonPress`).
+
+An oven recipe (`"type": "ovenSteps"`) has these steps, in this order:
 
 1. **Preheat**, for modes that preheat: the cook phase with `"seconds": 0`,
    `"defaultAutostart": false` and `"onComplete": "stayOn"`. If the timer
@@ -278,7 +283,7 @@ has these fields:
 | Field | Value |
 |---|---|
 | `mode` | The mode, from the table below. |
-| `temperatureCelsius` | Whole degrees °C, for modes with a temperature. |
+| `temperatureCelsius` | Whole degrees °C, for modes with a temperature. The oven rounds it to its own steps: 93 became 95 °C, or 200 °F on an oven set to °F. |
 | `level` | Instead of a temperature: broil 1 (low), 2 (medium) or 3 (high); slow cook 1 (low) or 2 (high). |
 | `seconds` | The cook time. Ovens can't skip the timer, and the shortest time is 1 minute. |
 | `convection` | `off`, `on` or `super`. |
@@ -406,7 +411,8 @@ appliance the food is out.
 
 ### Stop a cook
 
-**Verified** on a Joule.
+**Verified** on a Joule and a Joule Oven. The oven answered 204 No Content and
+went to `stopped`, then `idle`, within a few seconds.
 
 ```json
 {
@@ -532,22 +538,35 @@ thermistor failure, 12 stuck motor, 14 firmware crash. Only 0 has been seen.
 
 ### Joule Turbo and Joule Oven
 
-**From the app.** Both use the same layout:
+Both use the same layout. A real Joule Oven (firmware 1.10.21) confirmed the
+parts marked **Oven**; the rest are from the app.
 
 | Field | Meaning |
 |---|---|
-| `state` | `active`, `idle`, `offline`, `asleep`, `ready`, `busy`, `warming` (keeping warm), `onboarding`, `physicalButtonPress` (waiting for someone to press the appliance's button) or `virtualButtonPress` (waiting for [`finish-wait`](#food-in-food-out)). |
-| `heaters[0]` | `cur_temp` and `temp_sp` in °C, `temp_sp_max`, and `state`: 0 off, 1 preheating, 2 heating, 3 finished. Older Joule Turbo firmware calls it `heater`. |
+| `state` | **Oven:** `idle`; `physicalButtonPress` (after a remote start, waiting for someone to press Start); `active`; and briefly `stopped` after [`stop-recipe`](#stop-a-cook). From the app: `offline`, `asleep`, `ready`, `busy`, `warming` (keeping warm), `onboarding` and `virtualButtonPress` (waiting for [`finish-wait`](#food-in-food-out)). |
+| `heater` | **Oven:** `cur_temp` and `temp_sp` in °C, `temp_sp_f` in °F, `temp_sp_m` (meaning unknown), and `state`: 0 off, 1 preheating, 2 heating, 3 finished. The app also reads a `heaters` list. |
 | `temperature` | Older Joule Turbo firmware: `current` and `setpoint`, in °C. |
-| `timers[]` | The one with `id` 1 is the cook timer; see [Timers](#timers). Older Joule Turbo firmware has a single `timer`. |
-| `appliance` | `mode` (a number from the [mode table](#joule-oven-steps)), `frozen`, `rotate_state` and `preset`. |
-| `door.state` | Joule Oven: 0 when the door is open. |
-| `motors[0].state` | Joule Oven convection fan: 0 off, 1 on, 2 super. Older firmware calls it `motor`. |
+| `timers` | **Oven:** `[null, null]` while no timer runs, including during preheat. The one with `id` 1 is the cook timer; see [Timers](#timers). Older Joule Turbo firmware has a single `timer`. |
+| `appliance` | **Oven:** `mode` (a number from the [mode table](#joule-oven-steps)), `frozen`, `rotate_state`, `preset` and `cook_segment`. |
+| `door` | **Oven:** a number, 1 when closed and 0 when open. The app also reads `door.state`. |
+| `motor` | **Oven:** the convection fan as a number: 0 off, 1 on, 2 super. The app also reads `motors[0].state`. |
+| `cfg` | **Oven:** settings, including `temp_unit` (1 on an oven set to °F) and `vol`. |
 | `errors[]` | Entries of `{code, ts}`. Codes are below. |
-| `firmware` | `comm_mcu`, `host_mcu`, and sometimes `teFirmware`. |
-| `cookUUID` | The running cook, for [`update-cook`](#change-a-cook-on-newer-appliances). |
-| `currentStep` | Index of the running recipe step. Some firmware reports `recipe.stp` instead. |
+| `firmware` | **Oven:** `commFirmware`, `ctrlFirmware` and `teFirmware`. The app also reads `comm_mcu` and `host_mcu`. |
+| `name`, `serialNumber` | **Oven:** the appliance's name, which contained its serial number, and its serial number. |
+| `cookUUID` | **Oven:** the running cook, for [`update-cook`](#change-a-cook-on-newer-appliances). |
+| `currentStep` | **Oven:** index of the running recipe step, 0 while preheating. Some firmware reports `recipe.stp` instead. |
+| `recipe`, `currentStage`, `currentInstruction`, `currentStepState` | **Oven:** during a cook, the recipe's ID and where the cook is in it. |
+| `sys`, `ota` | **Oven:** CPU temperature and restart details, and the firmware update state. |
 | `onboardingState` | `notStarted` while the appliance is being set up. |
+
+While it waits for Start, the oven leaves `heater`, `motor` and `appliance` out
+of its state. It sent a full `stateReport` every 10 to 20 seconds while
+heating, and no `changeReport` or `applianceDataPoint` messages.
+
+The oven keeps a setpoint in each unit, rounded to its own steps: a cook sent
+as 93 °C reported `temp_sp` 95 and `temp_sp_f` 200. When `cfg.temp_unit` is 1,
+the integration shows the target from `temp_sp_f`.
 
 Error codes, from the app:
 

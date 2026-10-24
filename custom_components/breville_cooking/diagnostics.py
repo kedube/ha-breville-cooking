@@ -112,7 +112,9 @@ def personal_values(entry: BrevilleConfigEntry) -> list[str]:
     ]
     for appliance in entry.runtime_data.appliances.values():
         values += [appliance.serial, appliance.name]
-    return [value for value in values if value]
+        # The appliance's own state names it too: a BOV950's name is its serial.
+        values += [appliance.state.get("serialNumber"), appliance.state.get("name")]
+    return [value for value in values if isinstance(value, str) and value]
 
 
 async def async_get_config_entry_diagnostics(

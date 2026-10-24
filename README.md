@@ -28,7 +28,7 @@ Breville.
 |---|---|---|
 | ChefSteps Joule Sous Vide | CSJ100 | Tested on a real appliance |
 | Joule Turbo Sous Vide | BSV600 | Built from the app's code; untested |
-| Joule Oven Air Fryer Pro | BOV950 | Built from the app's code; untested |
+| Joule Oven Air Fryer Pro | BOV950 | Starting and stopping a bake tried on a real oven; the rest untested |
 
 Untested appliances are monitor-only until you allow control in the
 integration's [options](#options). If you have one, please
@@ -179,7 +179,8 @@ keeps to each model's temperature and time limits.
 4. When the timer ends, Status changes to Done. Take the food out and press
    **Continue**, or turn off **Cook**.
 
-The oven may ask you to press Start on its panel before it begins. Status then
+After a remote start, the oven waits for you to press Start on its panel, just
+as it does when you start a cook from the Breville+ app. Until then, Status
 shows Press the button on the appliance.
 
 ## Actions
@@ -271,7 +272,8 @@ Cooks start remotely, with nobody nearby. Only start a sous vide when it's in
 water, and an oven only when there's nothing inside that shouldn't be heated.
 For a delayed start, don't leave raw food sitting in unheated water.
 UL-certified Joules (North America) wait for a press of their top button
-before cooks above 85 °C.
+before cooks above 85 °C, and the Joule Oven waits for a press of Start before
+it heats.
 
 ## Data updates
 

@@ -125,6 +125,58 @@ OVEN_SHADOW = {
     "currentStep": 1,
 }
 
+# A real BOV950 (firmware 1.10.21, set to °F) baking at 200 °F, from issue #1.
+REAL_OVEN_IDLE = {
+    "timers": [None, None], "state": "idle", "door": 1, "name": "A950TEST0023",
+    "serialNumber": "A950TEST0023", "model": "BOV950",
+    "sys": {"cpu_temperature": 33, "stm_restart_reason": "power_up", "stm_restart_time": 271},
+    "firmware": {"commFirmware": "1.10.131", "teFirmware": "2.4.0", "ctrlFirmware": "1.10.21"},
+    "ota": {"state": 0}, "cfg": {"temp_unit": 1, "vol": 11}, "errors": [], "motor": 0,
+    "heater": {"state": 0, "temp_sp": 0, "temp_sp_f": 0, "temp_sp_m": 0, "cur_temp": 21},
+    "appliance": {"mode": 3, "rotate_state": 1, "preset": 0, "cook_segment": 0, "frozen": 0},
+}
+REAL_OVEN_COOK = {
+    "cookUUID": "cook-1", "currentInstruction": 4, "currentStage": 0, "currentStep": 0,
+    "currentStepState": "active", "recipe": "manual_x",
+}
+REAL_OVEN_PREHEATING = {
+    **REAL_OVEN_IDLE, **REAL_OVEN_COOK, "state": "active", "motor": 1,
+    "heater": {"state": 1, "temp_sp": 95, "temp_sp_f": 200, "temp_sp_m": 88, "cur_temp": 39},
+}
+# Waiting for Start to be pressed, the oven leaves out its heater, fan and mode.
+REAL_OVEN_WAITING = {
+    key: value for key, value in {**REAL_OVEN_IDLE, **REAL_OVEN_COOK}.items()
+    if key not in ("heater", "motor", "appliance", "cookUUID")
+} | {"state": "physicalButtonPress"}
+
+
+class TestRealOven:
+    def test_idle(self) -> None:
+        status = parse_status(MODEL_BOV950, REAL_OVEN_IDLE)
+        assert (status.state, status.current_temp_c, status.mode) == (CookState.IDLE, 21, "bake")
+        assert (status.convection, status.door_open, status.firmware) == ("off", False, "1.10.21")
+
+    def test_waiting_for_start(self) -> None:
+        status = parse_status(MODEL_BOV950, REAL_OVEN_WAITING)
+        assert status.state is CookState.WAITING_FOR_BUTTON
+        assert status.current_temp_c is None and status.target_temp_c is None
+
+    def test_preheating(self) -> None:
+        status = parse_status(MODEL_BOV950, REAL_OVEN_PREHEATING)
+        assert (status.state, status.convection, status.current_temp_c) == (CookState.PREHEATING, "on", 39)
+        # 200 °F as set, not the 95 °C the oven rounds its Celsius setpoint to.
+        assert status.target_temp_c == pytest.approx(93.33, abs=0.01)
+        assert (status.cook_id, status.step_index) == ("cook-1", 0)
+        assert status.time_remaining_s is None  # the timer starts after preheating
+
+    def test_celsius_setpoint_when_set_to_celsius(self) -> None:
+        shadow = {**REAL_OVEN_PREHEATING, "cfg": {"temp_unit": 0, "vol": 11}}
+        assert parse_status(MODEL_BOV950, shadow).target_temp_c == 95
+
+    def test_stopped_is_idle(self) -> None:
+        shadow = {**REAL_OVEN_PREHEATING, "state": "stopped"}
+        assert parse_status(MODEL_BOV950, shadow).state is CookState.IDLE
+
 
 class TestTaskEngine:
     def test_oven_status(self) -> None:

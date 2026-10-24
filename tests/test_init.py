@@ -400,6 +400,9 @@ async def test_diagnostics_have_no_personal_information(
         wifi={"ssid": "Home Network", "wifiMac": "a4cf12345679", "localIp": "192.168.1.20", "rssi": -60},
         note="Set up by Pat Example (pat@example.org) on Countertop, a4:cf:12:34:56:79",
     ))
+    # A real BOV950 names itself in its state, here differently from the account's list.
+    oven = OVEN_IDLE["data"]["reported"] | {"name": "A950-0099", "serialNumber": "A950-0099"}
+    await push(hass, socket, OVEN_IDLE | {"data": {"reported": oven}})
     client.recent_requests = [
         {"method": "POST", "endpoint": "update-cook", "status": 200,
          "body": {"model": "BOV950", "uuid": "c-9", "note": "Kitchen Oven"}},
@@ -414,7 +417,7 @@ async def test_diagnostics_have_no_personal_information(
     downloaded = json.dumps(diag, cls=ExtendedJSONEncoder).casefold()
     for personal in (
         *PROFILE.values(), "Salesforce|0051234", "Salesforce|1", "pat@example.org",
-        JOULE, OVEN, "Countertop", "Kitchen Oven", "A4:CF:12:34:56:78", "a4:cf:12:34:56:79",
+        JOULE, OVEN, "A950-0099", "Countertop", "Kitchen Oven", "A4:CF:12:34:56:78", "a4:cf:12:34:56:79",
         "a4cf12345679", "0123456789abcdef", "Home Network", "192.168.1.20",
     ):
         assert personal.casefold() not in downloaded, personal
@@ -426,7 +429,9 @@ async def test_diagnostics_have_no_personal_information(
     assert (data["bathTemp"], data["firmwareVersion"], data["wifi"]["rssi"]) == (55.1, "123", -60)
     assert (data["guideId"], data["cookId"]) == ("manual_x", REDACTED)
     assert diag["recent_requests"][0]["body"]["model"] == "BOV950"
-    assert diag["appliances"][1]["tested"] is False
+    oven = diag["appliances"][1]
+    assert oven["tested"] is False
+    assert (oven["reported"]["name"], oven["reported"]["state"]) == (REDACTED, "idle")
     await hass.config_entries.async_unload(entry.entry_id)
 
 

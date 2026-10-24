@@ -275,6 +275,8 @@ class TimerState(IntEnum):
 
 
 CONVECTION_STATES = {0: "off", 1: "on", 2: "super"}
+# cfg.temp_unit of an appliance set to show °F (seen on a US BOV950).
+TEMP_UNIT_FAHRENHEIT = 1
 
 # Joule eventReason values (CSJ100ShadowApplianceState.EventReason).
 CSJ_EVENT_REASONS = {
@@ -413,7 +415,9 @@ def _parse_task_engine(s: dict[str, Any], now: datetime) -> ApplianceStatus:
     motors = s.get("motors")
     motor = motors[0] if isinstance(motors, list) and motors else s.get("motor")
     if isinstance(motor, dict):
-        status.convection = CONVECTION_STATES.get(motor.get("state"))
+        motor = motor.get("state")
+    if isinstance(motor, int):  # a real BOV950 reports just the number
+        status.convection = CONVECTION_STATES.get(motor)
 
     errors = [e for e in s.get("errors") or [] if isinstance(e, dict)]
     if errors:
@@ -443,7 +447,7 @@ def _parse_task_engine(s: dict[str, Any], now: datetime) -> ApplianceStatus:
         status.state = CookState.ERROR
 
     if status.cooking:
-        status.target_temp_c = _num(heater.get("temp_sp", legacy.get("setpoint")))
+        status.target_temp_c = _target_temp_c(s, heater, legacy)
         timer = _main_timer(s)
         if timer and timer.get("down_from_n") not in (None, SKIP_TIMER_VALUE):
             status.cook_time_s = int(timer["down_from_n"])
@@ -454,6 +458,21 @@ def _parse_task_engine(s: dict[str, Any], now: datetime) -> ApplianceStatus:
                     status.ends_at = _ends_at(now, remaining)
                 status.time_remaining_s = remaining
     return status
+
+
+def _target_temp_c(
+    s: dict[str, Any], heater: dict[str, Any], legacy: dict[str, Any]
+) -> float | None:
+    """The setpoint in °C, taken from the °F one when the appliance shows °F.
+
+    The appliance rounds the setpoint to its own steps in each unit: a 200 °F
+    cook reports temp_sp 95 (°C) but temp_sp_f 200.
+    """
+    cfg = s.get("cfg") if isinstance(s.get("cfg"), dict) else {}
+    fahrenheit = _num(heater.get("temp_sp_f"))
+    if cfg.get("temp_unit") == TEMP_UNIT_FAHRENHEIT and fahrenheit:
+        return (fahrenheit - 32) * 5 / 9
+    return _num(heater.get("temp_sp", legacy.get("setpoint")))
 
 
 def _running_remaining(timer: dict[str, Any], remaining: int, now: datetime) -> int:
