@@ -2,4 +2,7 @@ blank_issues_enabled: true
 contact_links:
   - name: Espresso machine
     url: https://github.com/simonjgreen/sageha
-    about: Breville and Sage espresso machines are covered by the Sage Coffee integration, not this one.
+    about: This integration doesn't control espresso machines. Try the Sage Coffee integration, and check its README for supported models.
+  - name: Bluetooth control of a Joule
+    url: https://github.com/acato/ha-joule
+    about: This integration uses Breville's cloud. For Bluetooth control of a CSJ100 Joule, try the ChefSteps Joule Sous Vide integration.

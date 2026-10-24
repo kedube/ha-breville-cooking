@@ -34,8 +34,9 @@ integration's [options](#options). If you have one, please
 UK, Europe and the UAE, are supported the same way, but nobody has tried a
 Sage account yet.
 
-Other appliances on the account are ignored. For espresso machines, see the
-[Sage Coffee](https://github.com/simonjgreen/sageha) integration.
+Other appliances on the account are ignored. For espresso machines, use the
+[Sage Coffee](https://github.com/simonjgreen/sageha) integration instead. It's
+in the HACS default store; check its README for the models it supports.
 
 ## Requirements
 
@@ -43,7 +44,9 @@ Other appliances on the account are ignored. For espresso machines, see the
 - The account you use in the Breville+ Cooking app, or in Sage's version of
   it. Accounts with multi-factor authentication aren't supported.
 - The appliance set up in the app and connected to Wi-Fi. A Joule set to
-  "Bluetooth only" can't be reached.
+  "Bluetooth only" can't be reached. To use a CSJ100 Joule over Bluetooth,
+  see the [ChefSteps Joule Sous Vide](https://github.com/acato/ha-joule)
+  integration.
 
 ## Installation
 
@@ -292,7 +295,8 @@ unavailable, and you can then delete them from their device page.
   no controls for them yet.
 - Appliances added to the account can take up to 30 minutes to appear.
 - There's no local control. Breville can change its cloud at any time, which
-  could break this integration.
+  could break this integration. For Bluetooth control of a CSJ100 Joule, see
+  [ChefSteps Joule Sous Vide](https://github.com/acato/ha-joule).
 
 ## Testing an appliance
 
