@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 
 import pytest
 
@@ -25,7 +26,7 @@ from custom_components.breville_cooking.appliance import (
 )
 
 NOW = datetime(2026, 10, 23, 21, 32, 11, tzinfo=UTC)
-SERIAL = "180314080"
+SERIAL = "J123456"
 
 
 def csj_point(ts: int, state: str, step: int, remaining: int, **extra) -> dict:
@@ -212,6 +213,25 @@ class TestRequests:
         assert hold["phases"][1] == {"mode": "sousVide", "temperatureCelsius": 60.0, "skipTimer": True, "seconds": 0}
         with pytest.raises(ValueError):
             build_manual_steps(MODEL_BSV600, CookSettings(temperature_c=95))
+
+    def test_whole_numbers_sent_as_integers(self) -> None:
+        """Like the app's JavaScript: 360, not 360.0."""
+        (hold,) = build_manual_steps(MODEL_BSV600, CookSettings(temperature_c=60.0))
+        assert '"temperatureCelsius": 60,' in json.dumps(hold)
+        bake = oven_mode_defaults(OVEN_MODES["bake"])
+        bake.temperature_c = 300.0  # clamped to the mode's 250
+        steps = build_bov950_steps(bake)
+        assert steps[1]["phases"][0]["temperatureCelsius"] == 250
+        assert ".0" not in json.dumps(steps)
+        status = parse_status(MODEL_BOV950, OVEN_SHADOW)
+        edit = build_edit(MODEL_BOV950, OVEN_SHADOW, status, temperature_c=210.0)
+        assert json.dumps(edit.updates) == '[{"name": "cookSetPoint", "value": 210}]'
+
+    def test_a_bit_more_is_not_rounded(self) -> None:
+        pizza = oven_mode_defaults(OVEN_MODES["pizza"])
+        pizza.duration_s = 1001
+        (abm,) = [s for s in build_bov950_steps(pizza) if s["stepType"] == "aBitMore"]
+        assert abm["phases"][0]["seconds"] == pytest.approx(150.15)  # 0.15 x 1001, as the app
 
     def test_bake_preheat_then_cook(self) -> None:
         settings = oven_mode_defaults(OVEN_MODES["bake"])

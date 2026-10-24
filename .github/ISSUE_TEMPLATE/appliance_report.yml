@@ -60,6 +60,6 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics
-      description: Right after testing, go to **Settings → Devices & services → Breville+ Cooking**, choose ⋮ → **Download diagnostics**, and drag the file here. It includes the appliance's recent messages, without your email, login tokens or network addresses. Look it over before posting.
+      description: Right after testing, go to **Settings → Devices & services → Breville+ Cooking**, choose ⋮ → **Download diagnostics**, and drag the file here. It includes the appliance's recent messages, without your email, name, login tokens, serial numbers or network addresses. Look it over before posting.
     validations:
       required: true

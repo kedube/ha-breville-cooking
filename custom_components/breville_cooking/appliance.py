@@ -610,6 +610,11 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+def _js_number(value: float) -> float:
+    """A whole number as an int, so it's sent as 360 like the app sends it, not 360.0."""
+    return int(value) if isinstance(value, float) and value.is_integer() else value
+
+
 def build_manual_steps(model: str, settings: CookSettings) -> list[dict[str, Any]]:
     """Recipe steps for load-manual-recipe, as the app's getManualCookSteps."""
     if model == MODEL_CSJ100:
@@ -629,7 +634,7 @@ def build_bsv600_steps(settings: CookSettings) -> list[dict[str, Any]]:
     low, high = temp_limits(MODEL_BSV600)
     if settings.temperature_c is None or not low <= settings.temperature_c <= high:
         raise ValueError(f"Temperature must be {low}-{high} °C")
-    temp = round(settings.temperature_c * 10) / 10
+    temp = _js_number(round(settings.temperature_c * 10) / 10)
     phase = {"mode": MODE_SOUS_VIDE, "temperatureCelsius": temp}
     cook = (
         {**phase, "seconds": int(settings.duration_s)}
@@ -665,7 +670,7 @@ def bov950_phase(settings: CookSettings) -> dict[str, Any]:
     if mode.type is OvenModeType.TEMP:
         low, high = float(mode.temp[1]), float(mode.temp[2])
         temp = settings.temperature_c if settings.temperature_c is not None else mode.temp[0]
-        phase["temperatureCelsius"] = _clamp(round(temp), low, high)
+        phase["temperatureCelsius"] = _js_number(_clamp(round(temp), low, high))
     else:
         allowed = BroilLevel if mode.type is OvenModeType.BROIL else SlowCookLevel
         level = settings.level if settings.level in {int(v) for v in allowed} else mode.level
@@ -712,7 +717,8 @@ def build_bov950_steps(settings: CookSettings) -> list[dict[str, Any]]:
         steps.append(step([preheat_phase, phase], defaultAutostart=True))
 
     factor, low, high = mode.a_bit_more
-    abm_seconds = max(low, min(high, factor * phase["seconds"]))
+    # Not rounded, as in the app (getBOV950ManualCookABMStep).
+    abm_seconds = _js_number(max(low, min(high, factor * phase["seconds"])))
     steps.append(step([{**phase, "seconds": abm_seconds}], stepType="aBitMore"))
     if mode.keep_warm_allowed and not phase["keepWarm"]:
         steps.append(
@@ -760,7 +766,7 @@ def build_edit(
         )
     updates = []
     if temperature_c is not None:
-        updates.append({"name": "cookSetPoint", "value": temperature_c})
+        updates.append({"name": "cookSetPoint", "value": _js_number(temperature_c)})
     if duration_s is not None:
         updates.append({"name": "cookTime", "value": int(duration_s)})
     if not status.cook_id:

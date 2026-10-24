@@ -6,6 +6,8 @@
 ![Home Assistant 2026.2+](https://img.shields.io/badge/Home%20Assistant-2026.2%2B-41BDF5.svg)
 [![License](https://img.shields.io/github/license/kedube/ha-breville-cooking)](LICENSE)
 
+<p align="center"><img src="docs/images/joule-device.png" width="640" alt="A Joule's device page in Home Assistant during a cook: the Cook switch is on, the cook time and target temperature can be changed, and the sensors show it cooking at 56.9 °C with 78 minutes left"></p>
+
 Control your Breville+ Cooking appliances from Home Assistant: start and stop
 cooks, change the temperature and timer, and get notified when the water is
 ready or the food is done. It uses the same Breville cloud as the Breville+
@@ -336,9 +338,9 @@ When you report a problem or want support for a new model or firmware, attach
 the integration's diagnostics: go to **Settings → Devices & services →
 Breville+ Cooking**, then ⋮ → **Download diagnostics**. The file contains each
 appliance's raw state and its last 50 messages from Breville's cloud, plus
-Home Assistant's last 20 requests to the cloud. Your email, login tokens,
-appliance names and network addresses are removed, and serial numbers are cut
-to their last four digits. Look the file over before posting it publicly.
+Home Assistant's last 20 requests to the cloud. Your email, name and account
+IDs, login tokens, appliance names, serial numbers and network addresses are
+removed wherever they appear. Look the file over before posting it publicly.
 
 ## Development
 
@@ -375,6 +377,8 @@ python3 scripts/breville_probe.py start --temp 55 --minutes 30 --confirm-water
 ```
 
 The protocol was recovered from the Breville+ Cooking Android app (1.96.0).
+[docs/api.md](docs/api.md) documents the cloud API, and marks which parts were
+verified on a Joule.
 
 ## Trademarks
 

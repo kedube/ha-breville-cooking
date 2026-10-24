@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Generator
 from datetime import timedelta
+import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -15,20 +16,29 @@ from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVA
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.json import ExtendedJSONEncoder
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.breville_cooking import async_remove_config_entry_device
 from custom_components.breville_cooking.api import BrevilleAuthError
 from custom_components.breville_cooking.appliance import OVEN_MODES
 from custom_components.breville_cooking.const import CONF_ALLOW_UNTESTED_CONTROL, DOMAIN
-from custom_components.breville_cooking.diagnostics import async_get_config_entry_diagnostics
+from custom_components.breville_cooking.diagnostics import (
+    REDACTED,
+    async_get_config_entry_diagnostics,
+)
 
 from .common import make_jwt
 
-JOULE, OVEN = "180314080", "A950123456"
+JOULE, OVEN = "J123456", "A950123456"
+# The profile claims a real Breville login token carries.
+PROFILE = {
+    "email": "me@example.com", "name": "Pat Example", "nickname": "patex",
+    "customer_id": "C-123456", "https://breville.com/crm_user_id": "CRM-98765",
+}
 APPLIANCES = {
     "appliances": [
-        {"model": "CSJ100", "serialNumber": JOULE, "name": "Annisquam", "itemNumber": "CS10001"},
+        {"model": "CSJ100", "serialNumber": JOULE, "name": "Countertop", "itemNumber": "CS10001"},
         {"model": "BOV950", "serialNumber": OVEN, "name": "Kitchen Oven", "itemNumber": "BOV950BSS"},
         {"model": "BES995", "serialNumber": "espresso1", "name": "Espresso"},
     ],
@@ -134,7 +144,7 @@ async def entry(hass: HomeAssistant, client: MagicMock, socket: FakeSocket) -> M
         domain=DOMAIN,
         unique_id="Salesforce|1",
         title="me@example.com",
-        data={"email": "me@example.com", "id_token": make_jwt(), "refresh_token": "refresh"},
+        data={"email": "me@example.com", "id_token": make_jwt(**PROFILE), "refresh_token": "refresh"},
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -156,19 +166,19 @@ async def test_setup_creates_entities_for_supported_models(
     registry = er.async_get(hass)
     joule = {e.entity_id for e in er.async_entries_for_config_entry(registry, entry.entry_id) if e.unique_id.startswith(JOULE)}
     assert joule == {
-        "sensor.annisquam_status", "sensor.annisquam_temperature", "sensor.annisquam_time_remaining",
-        "sensor.annisquam_cook_end", "sensor.annisquam_error", "binary_sensor.annisquam_cooking",
-        "binary_sensor.annisquam_problem", "number.annisquam_target_temperature",
-        "number.annisquam_cook_time", "switch.annisquam_cook",
-        "switch.annisquam_start_timer_automatically", "button.annisquam_continue",
+        "sensor.countertop_status", "sensor.countertop_temperature", "sensor.countertop_time_remaining",
+        "sensor.countertop_cook_end", "sensor.countertop_error", "binary_sensor.countertop_cooking",
+        "binary_sensor.countertop_problem", "number.countertop_target_temperature",
+        "number.countertop_cook_time", "switch.countertop_cook",
+        "switch.countertop_start_timer_automatically", "button.countertop_continue",
     }
     for entity_id in ("select.kitchen_oven_mode", "select.kitchen_oven_convection",
                       "binary_sensor.kitchen_oven_door", "sensor.kitchen_oven_active_mode",
                       "switch.kitchen_oven_keep_warm"):
         assert registry.async_get(entity_id), entity_id
     # Connected, but no state from the Joule yet.
-    assert hass.states.get("sensor.annisquam_status").state == "offline"
-    assert hass.states.get("switch.annisquam_cook").state == STATE_UNAVAILABLE
+    assert hass.states.get("sensor.countertop_status").state == "offline"
+    assert hass.states.get("switch.countertop_cook").state == STATE_UNAVAILABLE
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
@@ -222,17 +232,17 @@ async def test_joule_cook_lifecycle(
     hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
 ) -> None:
     await push(hass, socket, csj("IDLE", 0, setPoint=None, cookId=None, bathTemp=21.2))
-    assert hass.states.get("sensor.annisquam_status").state == "idle"
-    assert hass.states.get("sensor.annisquam_temperature").state == "21.2"
-    assert hass.states.get("switch.annisquam_cook").state == STATE_OFF
-    assert hass.states.get("button.annisquam_continue").state == STATE_UNAVAILABLE
+    assert hass.states.get("sensor.countertop_status").state == "idle"
+    assert hass.states.get("sensor.countertop_temperature").state == "21.2"
+    assert hass.states.get("switch.countertop_cook").state == STATE_OFF
+    assert hass.states.get("button.countertop_continue").state == STATE_UNAVAILABLE
 
     # Idle: settings only, no cloud call.
-    await call(hass, "number", "set_value", "number.annisquam_target_temperature", value=55)
-    await call(hass, "number", "set_value", "number.annisquam_cook_time", value=45)
+    await call(hass, "number", "set_value", "number.countertop_target_temperature", value=55)
+    await call(hass, "number", "set_value", "number.countertop_cook_time", value=45)
     client.csj_update_program.assert_not_awaited()
 
-    await call(hass, "switch", "turn_on", "switch.annisquam_cook")
+    await call(hass, "switch", "turn_on", "switch.countertop_cook")
     serial, model, firmware, steps = client.load_manual_recipe.await_args.args
     assert (serial, model, firmware) == (JOULE, "CSJ100", {"commFirmware": "52", "ctrlFirmware": "123"})
     assert steps[0]["holdingTemperature"] == 55.0
@@ -240,34 +250,34 @@ async def test_joule_cook_lifecycle(
     assert client.load_manual_recipe.await_args.kwargs["locale"] == "en-US"
 
     await push(hass, socket, csj("ACTIVE", 2))
-    assert hass.states.get("sensor.annisquam_status").state == "ready"
-    assert hass.states.get("switch.annisquam_cook").state == STATE_ON
-    await call(hass, "button", "press", "button.annisquam_continue")
+    assert hass.states.get("sensor.countertop_status").state == "ready"
+    assert hass.states.get("switch.countertop_cook").state == STATE_ON
+    await call(hass, "button", "press", "button.countertop_continue")
     client.finish_wait.assert_awaited_once_with(JOULE, "CSJ100")
 
     await push(hass, socket, csj("ACTIVE", 3, timeRemaining=240))
-    assert hass.states.get("sensor.annisquam_status").state == "cooking"
-    assert float(hass.states.get("sensor.annisquam_time_remaining").state) == 4
-    assert hass.states.get("number.annisquam_cook_time").state == "4"
-    assert hass.states.get("sensor.annisquam_cook_end").state != "unknown"
+    assert hass.states.get("sensor.countertop_status").state == "cooking"
+    assert float(hass.states.get("sensor.countertop_time_remaining").state) == 4
+    assert hass.states.get("number.countertop_cook_time").state == "4"
+    assert hass.states.get("sensor.countertop_cook_end").state != "unknown"
 
     # Running: changing the temperature edits the cook, keeping its timer.
-    await call(hass, "number", "set_value", "number.annisquam_target_temperature", value=57)
+    await call(hass, "number", "set_value", "number.countertop_target_temperature", value=57)
     serial, program = client.csj_update_program.await_args.args
     assert program["setPoint"] == 57.0 and program["cookTime"] == 240
     assert program["programMetadata"] == {"cookId": "cook1", "guideId": "manual_x"}
 
-    await call(hass, "switch", "turn_off", "switch.annisquam_cook")
+    await call(hass, "switch", "turn_off", "switch.countertop_cook")
     assert client.stop_recipe.await_args.args == (JOULE, "CSJ100")
     assert client.stop_recipe.await_args.kwargs["firmware"] == {"commFirmware": "52", "ctrlFirmware": "123"}
 
     await push(hass, socket, csj("ACTIVE", 5, errorState=2, eventReason=4))
-    assert hass.states.get("binary_sensor.annisquam_problem").state == STATE_ON
-    assert hass.states.get("sensor.annisquam_error").state == "tipped_over"
+    assert hass.states.get("binary_sensor.countertop_problem").state == STATE_ON
+    assert hass.states.get("sensor.countertop_error").state == "tipped_over"
 
     await push(hass, socket, csj("OFFLINE", 0))
-    assert hass.states.get("sensor.annisquam_status").state == "offline"
-    assert hass.states.get("number.annisquam_target_temperature").state == STATE_UNAVAILABLE
+    assert hass.states.get("sensor.countertop_status").state == "offline"
+    assert hass.states.get("number.countertop_target_temperature").state == STATE_UNAVAILABLE
     await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -361,7 +371,7 @@ async def test_cloud_errors_become_ha_errors(
     await push(hass, socket, csj("IDLE", 0, setPoint=None, cookId=None))
     client.load_manual_recipe.side_effect = BrevilleApiError("POST", "u", 500, "oops")
     with pytest.raises(HomeAssistantError):
-        await call(hass, "switch", "turn_on", "switch.annisquam_cook")
+        await call(hass, "switch", "turn_on", "switch.countertop_cook")
     await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -381,27 +391,41 @@ async def test_websocket_auth_failure_starts_reauth(
     await hass.config_entries.async_unload(entry.entry_id)
 
 
-async def test_diagnostics_redact_tokens(
+async def test_diagnostics_have_no_personal_information(
     hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
 ) -> None:
-    await push(hass, socket, csj("ACTIVE", 3, timeRemaining=100, macAddress="aa:bb"))
+    await push(hass, socket, csj(
+        "ACTIVE", 3, timeRemaining=100, macAddress="A4:CF:12:34:56:78",
+        circulatorAddress="0123456789abcdef", customerId="C-123456",
+        wifi={"ssid": "Home Network", "wifiMac": "a4cf12345679", "localIp": "192.168.1.20", "rssi": -60},
+        note="Set up by Pat Example (pat@example.org) on Countertop, a4:cf:12:34:56:79",
+    ))
     client.recent_requests = [
         {"method": "POST", "endpoint": "update-cook", "status": 200,
-         "body": {"model": "BOV950", "uuid": "c-9", "note": "Annisquam"}},
+         "body": {"model": "BOV950", "uuid": "c-9", "note": "Kitchen Oven"}},
+        {"method": "GET", "endpoint": "appliances",
+         "error": "InvalidURL('https://iot-api.breville.com/user/v2/user/Salesforce|0051234/appliances')"},
+        {"method": "POST", "endpoint": "finish-wait", "status": 200,
+         "body": {"applianceModel": "CSJ100"}, "response": {JOULE: {"owner": "patex"}}},
     ]
     diag = await async_get_config_entry_diagnostics(hass, entry)
-    assert diag["entry"]["refresh_token"] == "**REDACTED**"
-    assert diag["entry"]["email"] == "**REDACTED**"
+
+    # Nothing personal anywhere in the file, inside other text or keys either.
+    downloaded = json.dumps(diag, cls=ExtendedJSONEncoder).casefold()
+    for personal in (
+        *PROFILE.values(), "Salesforce|0051234", "Salesforce|1", "pat@example.org",
+        JOULE, OVEN, "Countertop", "Kitchen Oven", "A4:CF:12:34:56:78", "a4:cf:12:34:56:79",
+        "a4cf12345679", "0123456789abcdef", "Home Network", "192.168.1.20",
+    ):
+        assert personal.casefold() not in downloaded, personal
+    assert diag["entry"]["refresh_token"] == REDACTED
+    # What's needed to debug an appliance is kept.
     joule = diag["appliances"][0]
-    assert joule["serial"] == "…4080" and joule["tested"] is True
-    assert joule["reported"]["cookId"] == "**REDACTED**"
-    assert joule["reported"]["macAddress"] == "**REDACTED**"
-    message = joule["recent_messages"][-1]["message"]
-    assert message["serialNumber"] == "…4080" and message["data"]["bathTemp"] == 55.1
-    # Nicknames are masked wherever they turn up.
-    assert diag["recent_requests"][0]["body"] == {
-        "model": "BOV950", "uuid": "**REDACTED**", "note": "**REDACTED**"
-    }
+    assert (joule["model"], joule["tested"]) == ("CSJ100", True)
+    data = joule["recent_messages"][-1]["message"]["data"]
+    assert (data["bathTemp"], data["firmwareVersion"], data["wifi"]["rssi"]) == (55.1, "123", -60)
+    assert (data["guideId"], data["cookId"]) == ("manual_x", REDACTED)
+    assert diag["recent_requests"][0]["body"]["model"] == "BOV950"
     assert diag["appliances"][1]["tested"] is False
     await hass.config_entries.async_unload(entry.entry_id)
 
@@ -425,10 +449,10 @@ async def test_start_cook_service_options(
         await call(hass, DOMAIN, "start_cook", "switch.kitchen_oven_cook", mode="bake", level="high")
     assert err.value.translation_key == "level_not_for_mode"
     with pytest.raises(ServiceValidationError) as err:
-        await call(hass, DOMAIN, "start_cook", "switch.annisquam_cook", mode="bake")
+        await call(hass, DOMAIN, "start_cook", "switch.countertop_cook", mode="bake")
     assert err.value.translation_key == "mode_oven_only"
 
-    await call(hass, DOMAIN, "start_cook", "switch.annisquam_cook", temperature=60, auto_start_timer=True)
+    await call(hass, DOMAIN, "start_cook", "switch.countertop_cook", temperature=60, auto_start_timer=True)
     assert client.load_manual_recipe.await_args.args[3][0]["defaultAutostart"] is True
     await hass.config_entries.async_unload(entry.entry_id)
 
@@ -439,9 +463,9 @@ async def test_start_timer_automatically_switch(
     await push(hass, socket, csj("IDLE", 0, setPoint=None, cookId=None))
     for state, expected in ((STATE_ON, True), (STATE_OFF, False)):
         service = "turn_on" if state == STATE_ON else "turn_off"
-        await call(hass, "switch", service, "switch.annisquam_start_timer_automatically")
-        assert hass.states.get("switch.annisquam_start_timer_automatically").state == state
-        await call(hass, "switch", "turn_on", "switch.annisquam_cook")
+        await call(hass, "switch", service, "switch.countertop_start_timer_automatically")
+        assert hass.states.get("switch.countertop_start_timer_automatically").state == state
+        await call(hass, "switch", "turn_on", "switch.countertop_cook")
         assert client.load_manual_recipe.await_args.args[3][0]["defaultAutostart"] is expected
     await hass.config_entries.async_unload(entry.entry_id)
 
@@ -457,7 +481,7 @@ async def test_websocket_reconnects(
     with patch("custom_components.breville_cooking.coordinator.WS_RECONNECT_MIN", 0.01):
         await hass.config_entries.async_setup(entry.entry_id)
         await push(hass, socket, csj("IDLE", 0, setPoint=None, cookId=None))
-        assert hass.states.get("sensor.annisquam_status").state == "idle"
+        assert hass.states.get("sensor.countertop_status").state == "idle"
 
         await push(hass, socket, None)  # the cloud closes the connection
         for _ in range(20):
@@ -465,7 +489,7 @@ async def test_websocket_reconnects(
         await flush(hass)
         # Reconnected and subscribed again, with the last state kept.
         assert socket.connected and len(socket.subscribed) == 4
-        assert hass.states.get("sensor.annisquam_status").state == "idle"
+        assert hass.states.get("sensor.countertop_status").state == "idle"
         await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -481,7 +505,7 @@ async def test_appliance_list_errors(
     await flush(hass)
     # A failed refresh alone doesn't make the appliance unavailable.
     assert not coordinator.last_update_success
-    assert hass.states.get("switch.annisquam_cook").state == STATE_OFF
+    assert hass.states.get("switch.countertop_cook").state == STATE_OFF
 
     client.get_appliances.side_effect = BrevilleAuthError("expired")
     await coordinator.async_refresh()

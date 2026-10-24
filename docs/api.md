@@ -1,0 +1,634 @@
+# Breville+ cloud API
+
+This is the cloud API that the Breville+ Cooking app uses to control
+appliances, as far as it's known. It's unofficial: Breville doesn't publish it
+and can change it at any time. It was worked out from the Breville+ Cooking
+Android app (`com.breville.cookingapp` 1.96.0) and from traffic between this
+integration and a real Joule.
+
+The code is in [`api.py`](../custom_components/breville_cooking/api.py)
+(login, REST and websocket) and
+[`appliance.py`](../custom_components/breville_cooking/appliance.py) (reading
+each model's state and building its requests). Neither imports Home Assistant,
+so both can be reused elsewhere.
+
+Each part of the API is marked as one of:
+
+- **Verified**: tried on a real Joule (CSJ100: hardware J5, firmware 123, Wi-Fi
+  firmware 52) in October 2026.
+- **From the app**: read from the app's code. Nobody has tried it on a real
+  appliance yet.
+
+Contents: [Overview](#overview) · [Brands](#brands) ·
+[Logging in](#logging-in) · [Appliance list](#appliance-list) ·
+[Commands](#commands) · [Live updates](#live-updates) ·
+[Appliance state](#appliance-state) · [Timers](#timers) · [Limits](#limits) ·
+[Not covered](#not-covered) · [Sources](#sources) ·
+[Helping verify](#helping-verify)
+
+## Overview
+
+| Purpose | URL |
+|---|---|
+| Login (Auth0) | `https://my.breville.com/oauth/token` |
+| Account API | `https://iot-api.breville.com/user` |
+| Appliance API | `https://iot-api.breville.com/appliance/v1` |
+| Live updates (websocket) | `wss://iot-api-ws.breville.com/applianceProxy` |
+
+A client uses them in this order:
+
+1. Log in with the account's email and password to get an `id_token`.
+2. List the appliances on the account.
+3. Open the websocket and subscribe to each appliance. The cloud sends the
+   appliance's full state, then every change.
+4. Send commands over REST. Most return an empty body, and their effect shows up
+   on the websocket.
+
+## Brands
+
+| Brand | Auth0 `client_id` | App channel | Status |
+|---|---|---|---|
+| Breville | `A2IYXGeuX1g8s049YEri6WC6hu2wlrMZ` | `brevilleJoule` | Verified |
+| Sage (UK, Europe and the UAE) | `Vp1NuYQ76uhbslASYk0iRRbeHUIsrGDa` | `sageJoule` | From the app |
+
+The app channel goes in the REST `app` header and in websocket subscriptions.
+Everything else, including the hosts, realm, audience and scope, is the same for
+both brands. Sage's app (`com.sageappliances.cooking`) is a separate app built
+from the same code with the brand fixed. Nothing in the appliance list says
+which brand an account belongs to, so the user has to choose.
+
+## Logging in
+
+### Password login
+
+**Verified.** Send a `POST` to `https://my.breville.com/oauth/token`:
+
+```json
+{
+  "client_id": "A2IYXGeuX1g8s049YEri6WC6hu2wlrMZ",
+  "grant_type": "http://auth0.com/oauth/grant-type/password-realm",
+  "username": "user@example.com",
+  "password": "…",
+  "realm": "Salesforce",
+  "scope": "openid profile email offline_access",
+  "audience": "https://iden-prod.us.auth0.com/userinfo"
+}
+```
+
+The response is Auth0's usual token response, with an `id_token`, an
+`access_token` and, because of `offline_access`, a `refresh_token`.
+
+Breville's API authenticates with the `id_token`, not the access token. The
+`id_token` is a JWT issued by `https://my.breville.com/`, with the `client_id`
+as its audience. Its claims are `sub`, `email`, `email_verified`, `name`,
+`nickname`, `picture`, `customer_id`, `https://breville.com/crm_user_id`,
+`iat`, `exp` and `updated_at`. `sub` is the user ID that account URLs use.
+
+Failures come back in Auth0's format, `{"error": …, "error_description": …}`.
+The integration handles them like this:
+
+| `error` | Meaning |
+|---|---|
+| `invalid_grant` | Wrong email or password. |
+| `access_denied`, `unauthorized_client` | Login refused. |
+| `mfa_required` | The account uses multi-factor authentication. Neither the app nor this integration can log in to it. |
+
+### Refreshing the token
+
+**From the app.** Send a `POST` to the same URL:
+
+```json
+{
+  "client_id": "A2IYXGeuX1g8s049YEri6WC6hu2wlrMZ",
+  "grant_type": "refresh_token",
+  "refresh_token": "…"
+}
+```
+
+The response has a new `id_token`. If it has no new `refresh_token`, keep the
+old one. The integration refreshes when the `id_token` is within 5 minutes of
+its `exp`. It also refreshes once after any 401, then retries the request.
+
+### REST headers
+
+**Verified.** Every REST request carries:
+
+```text
+Accept: application/json
+sf-id-token: <id_token>
+Authorization: Bearer <id_token>
+app: brevilleJoule
+```
+
+The app sends the token in `sf-id-token`. This integration also sends it as a
+bearer token.
+
+## Appliance list
+
+**Verified.** `GET https://iot-api.breville.com/user/v2/user/{sub}/appliances`
+
+```json
+{
+  "appliances": [
+    {
+      "serialNumber": "…",
+      "model": "CSJ100",
+      "name": "Kitchen Joule",
+      "itemNumber": "…",
+      "pairingType": "wifi",
+      "circulatorId": "…"
+    }
+  ],
+  "ownedModels": ["CSJ100"]
+}
+```
+
+- `serialNumber` identifies the appliance in every other call.
+- `name` is the name given to it in the app.
+- `pairingType` was `wifi` for a Joule on Wi-Fi.
+- A Joule also has a `circulatorId`, which the
+  [Bluetooth key](#joule-bluetooth-key) endpoint uses.
+- Every appliance on the account is listed, including models this integration
+  doesn't support, such as espresso machines. The integration skips them.
+
+Nothing tells a client that an appliance was added or removed, so the
+integration fetches the list again every 30 minutes.
+
+`GET https://iot-api.breville.com/appliance/v1/appliances/{serial}/model`
+returns the appliance's model, as `{"model": …}` (**Verified**). The
+integration doesn't use it.
+
+## Commands
+
+Commands are `POST` requests to
+`https://iot-api.breville.com/appliance/v1/appliances/{serial}/{action}`, with a
+JSON body and the [REST headers](#rest-headers). Timestamps in the bodies are
+Unix time in milliseconds. A successful command returns an empty body, except
+`load-manual-recipe`, and the appliance's reaction arrives on the
+[websocket](#live-updates).
+
+| Action | Purpose | Joule (CSJ100) | Joule Turbo (BSV600), Joule Oven (BOV950) |
+|---|---|---|---|
+| [`load-manual-recipe`](#start-a-cook) | Start a cook | Verified | From the app |
+| [`send-csj-message`](#change-a-joule-cook) | Change a running Joule cook | Verified | Not used |
+| [`update-cook`](#change-a-cook-on-newer-appliances) | Change a running cook | Not used | From the app |
+| [`finish-wait`](#food-in-food-out) | Food is in, or food is out | Verified | From the app |
+| [`stop-recipe`](#stop-a-cook) | Stop the cook | Verified | From the app |
+
+Several commands include the appliance's firmware, copied from its
+[reported state](#appliance-state):
+
+- Joule: `{"commFirmware": espFirmwareVersion, "ctrlFirmware": firmwareVersion}`
+- Joule Turbo and Joule Oven: `{"commFirmware": firmware.comm_mcu,
+  "ctrlFirmware": firmware.host_mcu}`, plus `teFirmware` when the appliance
+  reports one.
+
+### Start a cook
+
+`load-manual-recipe` starts a cook, the same way as a manual cook in the app.
+This starts a Joule at 55 °C for 30 minutes:
+
+```json
+{
+  "applianceModel": "CSJ100",
+  "firmware": {"commFirmware": "52", "ctrlFirmware": "123"},
+  "payload": {
+    "locale": "en-US",
+    "steps": [
+      {
+        "defaultAutostart": false,
+        "holdingTemperature": 55.0,
+        "phases": [{"mode": "sousVide", "temperatureCelsius": 55.0, "seconds": 1800}],
+        "stepType": "default",
+        "title": "",
+        "type": "sousVideSteps"
+      }
+    ]
+  },
+  "timestamp": 1792804189503
+}
+```
+
+- `locale` is a language and country, such as `en-US` or `de-DE`. The
+  integration sends Home Assistant's.
+- `steps` is the recipe, in each model's format below.
+- The app can also send `userDefinedParams`. The integration never does.
+
+The cloud turns the steps into a recipe and runs it on the appliance. It
+returns the recipe as `{"recipe": {…}}`, with `id`, `className`, `version`,
+`locales`, `applicableDevicesSlugs`, `overallDisplay` (per model) and `steps`.
+
+#### Joule steps
+
+**Verified.** A Joule recipe has one step with one phase, as in the example
+above.
+
+- To hold the temperature until stopped, leave out `seconds` and add
+  `"skipTimer": true` to the phase.
+- Temperatures are in °C, rounded to 0.1, from 20 to 98 °C.
+- With `"defaultAutostart": false`, the Joule waits for the food once it's at
+  temperature (`programStep` 2), and [`finish-wait`](#food-in-food-out) starts
+  the timer. With `true`, the timer starts as soon as the water is at
+  temperature.
+
+#### Joule Turbo steps
+
+**From the app.** The step has the same fields as a Joule's, but two phases: a
+preheat with `"seconds": 0`, then the cook. These phases cook at 57.5 °C for
+90 minutes:
+
+```json
+{
+  "phases": [
+    {"mode": "sousVide", "temperatureCelsius": 57.5, "seconds": 0},
+    {"mode": "sousVide", "temperatureCelsius": 57.5, "seconds": 5400}
+  ]
+}
+```
+
+To hold the temperature, the second phase is
+`{"mode": "sousVide", "temperatureCelsius": 57.5, "skipTimer": true, "seconds": 0}`.
+Temperatures go from 20 to 92 °C.
+
+#### Joule Oven steps
+
+**From the app.** An oven recipe (`"type": "ovenSteps"`) has these steps, in
+this order:
+
+1. **Preheat**, for modes that preheat: the cook phase with `"seconds": 0`,
+   `"defaultAutostart": false` and `"onComplete": "stayOn"`. If the timer
+   should start by itself after preheating, the preheat and cook phases go in a
+   single step with `"defaultAutostart": true` instead.
+2. **Cook**: the cook phase, with `"onComplete": "turnOff"`, or `"keepWarm"`
+   when the phase asks to keep warm and the mode allows it.
+3. **A bit more** (`"stepType": "aBitMore"`): the cook phase again. This is the
+   extra time the app offers when a cook ends. Its `seconds` are
+   `max(minimum, min(maximum, factor × cook seconds))`, without rounding. The
+   factor, minimum and maximum depend on the mode; see `OVEN_MODES` in
+   [`appliance.py`](../custom_components/breville_cooking/appliance.py).
+4. **Keep warm** (`"stepType": "keepWarm"`), when the mode allows keeping warm
+   and the cook phase didn't ask for it: 3600 seconds in `warm` mode with
+   convection on, at `min(temperature, 70)` °C, then `"onComplete": "turnOff"`.
+
+Every step except keep warm also has `onCompleteTemperature`, which is
+`min(temperature, 70)` (70 for broil and slow cook). It also has a
+`rackPosition` such as `["6"]`, left out for modes without one. The cook phase
+has these fields:
+
+| Field | Value |
+|---|---|
+| `mode` | The mode, from the table below. |
+| `temperatureCelsius` | Whole degrees °C, for modes with a temperature. |
+| `level` | Instead of a temperature: broil 1 (low), 2 (medium) or 3 (high); slow cook 1 (low) or 2 (high). |
+| `seconds` | The cook time. Ovens can't skip the timer, and the shortest time is 1 minute. |
+| `convection` | `off`, `on` or `super`. |
+| `frozen` | `on` or `off`. Only pizza, cookies and reheat offer it. |
+| `keepWarm` | `true` to keep the food warm after the cook. |
+| `rotateRemind` | `false`. |
+
+Baking at 180 °C for 30 minutes gives these steps:
+
+```json
+[
+  {
+    "stepType": "default", "defaultAutostart": false, "onComplete": "stayOn",
+    "onCompleteTemperature": 70, "rackPosition": ["6"], "title": "", "type": "ovenSteps",
+    "phases": [{"mode": "bake", "convection": "on", "rotateRemind": false, "temperatureCelsius": 180, "seconds": 0, "frozen": "off", "keepWarm": false}]
+  },
+  {
+    "stepType": "default", "onComplete": "turnOff",
+    "onCompleteTemperature": 70, "rackPosition": ["6"], "title": "", "type": "ovenSteps",
+    "phases": [{"mode": "bake", "convection": "on", "rotateRemind": false, "temperatureCelsius": 180, "seconds": 1800, "frozen": "off", "keepWarm": false}]
+  },
+  {
+    "stepType": "aBitMore", "onComplete": "turnOff",
+    "onCompleteTemperature": 70, "rackPosition": ["6"], "title": "", "type": "ovenSteps",
+    "phases": [{"mode": "bake", "convection": "on", "rotateRemind": false, "temperatureCelsius": 180, "seconds": 360, "frozen": "off", "keepWarm": false}]
+  },
+  {
+    "stepType": "keepWarm", "onComplete": "turnOff", "title": "", "type": "ovenSteps",
+    "phases": [{"mode": "warm", "convection": "on", "temperatureCelsius": 70, "seconds": 3600}]
+  }
+]
+```
+
+These are the modes that can be started remotely. `appliance.mode` is the
+number the oven reports while it's in that mode.
+
+| Mode | `appliance.mode` | Temperature (°C) | Time | Preheat | Rack | Convection | Keep warm |
+|---|---|---|---|---|---|---|---|
+| `bake` | 3 | 50–250, default 165 | default 30 min, max by temperature | yes | 6 | off/on/super (default on) | yes |
+| `airFry` | 8 | 150–250, default 205 | default 18 min, max 1 h | yes | 3 | super | yes |
+| `roast` | 4 | 50–250, default 205 | default 1 h, max by temperature | yes | 6 | off/on/super (default on) | yes |
+| `broil` | 2 | level 1–3, default 3 | default 10 min, max 20 min | no | 1 | off | yes |
+| `pizza` | 6 | 150–250, default 205 | default 16 min, max 1 h | yes | 7 | off/on/super (default on) | yes |
+| `cookies` | 10 | 100–250, default 165 | default 11 min, max 1 h | yes | 5 | off/on/super (default on) | yes |
+| `reheat` | 9 | 70–250, default 165 | default 15 min, max 2 h | no | – | off/on/super (default on) | yes |
+| `slowCook` | 11 | level 1 (low) or 2 (high) | low 4–72 h (default 8 h), high 2–12 h (default 6 h) | no | 8 | on | yes |
+| `proof` | 7 | 27–38, default 29 | default 1 h, max 24 h | no | – | off/on/super (default on) | no |
+| `warm` | 5 | 45–120, default 70 | default 1 h, max by temperature | no | – | off/on/super (default on) | no |
+| `dehydrate` | 12 | 30–80, default 52 | default 12 h, max 72 h | no | 3 | off/on/super (default super) | no |
+| `bottomBake` | 13 | 50–250, default 165 | default 30 min, max by temperature | yes | 6 | off/on/super (default on) | yes |
+| `gentleBroil` | 17 | 50–250, default 165 | default 30 min, max by temperature | yes | 6 | off/on/super (default on) | yes |
+| `bottomBroil` | 14 | level 1–3, default 3 | default 10 min, max 20 min | no | 1 | off | yes |
+| `outerTopBroil` | 15 | level 1–3, default 3 | default 10 min, max 20 min | no | 1 | off | yes |
+| `middleTopBroil` | 16 | level 1–3, default 3 | default 10 min, max 20 min | no | 1 | off | yes |
+| `windyBroil` | 18 | level 1–3, default 3 | default 10 min, max 20 min | no | 1 | off | yes |
+
+"Max by temperature" means up to 4 hours at 200 °C and above, 8 hours from
+150 °C, 12 hours from 100 °C, and 72 hours below that.
+
+Appliances report some other `appliance.mode` values for modes that can only
+be started on the appliance itself. The oven reports 0 toast, 1 bagel, 19 keep
+warm and 26 crispy reheat. The Joule Turbo reports 23 sous vide and 24 turbo.
+
+### Change a Joule cook
+
+**Verified.** `send-csj-message` passes a message to the Joule's own command
+protocol. To change the temperature or time of the running cook, send a
+`startProgramRequest`:
+
+```json
+{
+  "messageType": "startProgramRequest",
+  "message": {
+    "circulatorProgram": {
+      "setPoint": 60.0,
+      "cookTime": 2700,
+      "programType": 1,
+      "programMetadata": {"cookId": "0123456789abcdef0123456789abcdef", "guideId": "manual_example"},
+      "turboCookState": 0
+    }
+  }
+}
+```
+
+- `programType` is `1` (automatic) for a timed cook, or `0` (manual) to hold
+  the temperature. A manual program has no `cookTime`.
+- `cookTime` is the reported `timeRemaining` once the timer is running, so the
+  timer carries on from where it was. Before that, it's the reported
+  `cookTime`.
+- Copy `cookId` and `guideId` from the reported state, or the Joule treats it
+  as a different cook.
+- On an idle Joule this only loads the program; it doesn't start heating. Use
+  [`load-manual-recipe`](#start-a-cook) to start a cook.
+
+### Change a cook on newer appliances
+
+**From the app.** The Joule Turbo and Joule Oven use `update-cook`:
+
+```json
+{
+  "model": "BOV950",
+  "step": 1,
+  "updates": [
+    {"name": "cookSetPoint", "value": 210},
+    {"name": "cookTime", "value": 600}
+  ],
+  "uuid": "…"
+}
+```
+
+- `step` is the reported `currentStep`, and `uuid` is the reported `cookUUID`.
+- The update names are `cookSetPoint`, `cookTime` and `autoStartTimer`. The
+  units are assumed to be °C and seconds, but nobody has checked.
+
+### Food in, food out
+
+`finish-wait` (**Verified** on a Joule) is the app's on-screen button. When the
+appliance is at temperature and waiting for the food, it starts the timer.
+When the cook is done and waiting for the food to come out, it tells the
+appliance the food is out.
+
+```json
+{"applianceModel": "CSJ100", "timestamp": 1792804189503}
+```
+
+### Stop a cook
+
+**Verified** on a Joule.
+
+```json
+{
+  "applianceModel": "CSJ100",
+  "firmware": {"commFirmware": "52", "ctrlFirmware": "123"},
+  "reason": 1,
+  "timestamp": 1792804189503
+}
+```
+
+`reason` is 0 (complete), 1 (cancel) or 2 (error). The integration sends 1.
+
+### Joule Bluetooth key
+
+Not used by this integration, and not tried here.
+`POST https://iot-api.breville.com/appliance/v1/appliance/{serial}/get-csj-secret-key`
+(note `appliance`, not `appliances`) with `{"circulatorId": …}` returns
+`{"secretKey": …}`, in hex or base64. This is the key a Joule uses to accept
+Bluetooth connections. The app saves keys with `persist-csj-secret-key`.
+These details come from the app and from the
+[ficusk/ha-joule](https://github.com/ficusk/ha-joule) fork, which uses the key
+for Bluetooth control. Treat the key like a password.
+
+## Live updates
+
+**Verified.** Open `wss://iot-api-ws.breville.com/applianceProxy` with these
+headers:
+
+```text
+sf-id-token: <id_token>
+Authorization: Bearer <id_token>
+```
+
+A 401 during the handshake means the token has expired. Refresh it and try
+again.
+
+The client sends JSON messages:
+
+| Message | Purpose | Status |
+|---|---|---|
+| `{"action": "addAppliance", "serialNumber": "…", "app": "brevilleJoule", "model": "CSJ100"}` | Subscribe to an appliance. | Verified |
+| `{"action": "removeAppliance", "serialNumber": "…"}` | Unsubscribe. | From the app |
+| `{"action": "ping"}` | Keep the connection open. | From the app |
+
+After `addAppliance`, the cloud sends a `stateReport` with the full state, then
+a stream of updates. Subscribe again on every new connection.
+
+The app checks the connection every 5 seconds and pings when nothing has been
+sent or received for 15 seconds. After a drop, it reconnects after 5 seconds,
+then waits 1.8 times longer before each retry. The integration caps the wait at
+5 minutes.
+
+The cloud's messages look like this:
+
+```json
+{
+  "serialNumber": "…",
+  "messageType": "stateReport",
+  "version": 722,
+  "data": {"reported": {"state": "IDLE", "programStep": 0, "bathTemp": 54.5}}
+}
+```
+
+| `messageType` | Contents | Status |
+|---|---|---|
+| `stateReport` | The full state in `data.reported`, replacing what came before. `version` is an integer that counts up. | Verified |
+| `changeReport` | Part of the state in `data.reported`. Merge it in, key by key, including nested objects. | From the app |
+| `applianceDataPoint` | The live state, flat in `data`. Merge it in. On a Joule, `version` is a string of epoch milliseconds. | Verified |
+| `syncCookHistoryReport` | Cook history. `data.document` lists `{className, contentId, cookUuid, timestamp}`. | Verified |
+| `buttonPressResult`, `timelineReport`, `syncCarouselReport`, `syncFavoritesReport`, `cookHistoryModifiedNotification`, `pong` | Used by the app, and ignored by the integration. | From the app |
+
+A Joule sends `applianceDataPoint` messages every few seconds, with a
+`stateReport` from time to time.
+
+### Out-of-order messages
+
+Messages can arrive out of order. During a Wi-Fi drop, a Joule's `stateReport`
+version 788 (`OFFLINE`) arrived before version 787 (still `ACTIVE`). The
+integration drops stale messages like this:
+
+- **Joule:** drop a `stateReport` whose version is lower than the last one.
+  Every Joule state has a `timestamp`: the Joule's uptime in milliseconds. Drop
+  any update that is up to 2 minutes older than the newest one seen. A bigger
+  jump back means the Joule restarted, so accept it. Don't compare versions
+  across message types: `applianceDataPoint` versions are epoch milliseconds,
+  while `stateReport` versions are a counter.
+- **Joule Turbo and Joule Oven** (from the app): drop any message whose
+  `version` isn't newer than the last one of the same `messageType`.
+
+## Appliance state
+
+### Joule
+
+**Verified.** A Joule reports these fields, in `data.reported` or flat in
+`data`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `state` | string | `OFFLINE`, `ONLINE`, `IDLE`, or `ACTIVE` while running a cook. `ONLINE` shows briefly while a Joule reconnects. An `OFFLINE` Joule keeps reporting its last state. |
+| `programStep` | int | 0 none, 1 preheating, 2 waiting for the food, 3 cooking, 4 waiting for the food to come out, 5 error, 6 updating firmware. Values 5 and 6 are from the app. |
+| `bathTemp` | float | Water temperature, °C. |
+| `setPoint` | float | Target temperature, °C, as a 32-bit float such as `58.900001525878906`. An idle Joule may still report its last cook's. |
+| `cookTime` | int | Timer length, in seconds. |
+| `timeRemaining` | int | Seconds left. 0 until the timer starts, then it counts down while `programStep` is 3. |
+| `cookId` | string | 32 hex digits identifying the cook. |
+| `guideId` | string | `manual_<id>` for manual cooks. |
+| `programId`, `timerId` | string | IDs of the program and its timer. |
+| `timestamp` | int | The Joule's uptime when it sampled the state, in milliseconds. |
+| `programStartedTimestamp`, `setPointReachedTimestamp`, `dropFoodTimestamp`, `cookFinishedTimestamp` | int | Uptime of each event, in milliseconds. |
+| `programStartedUnixTimestamp`, `circulatorStoppedUnixTimestamp` | int | Unix time in milliseconds. |
+| `errorState` | int | Not 0 when there's an error, which `eventReason` then describes. |
+| `eventType`, `eventReason`, `eventTimestamp` | int | The last event. Reasons are below. |
+| `maxTemp` | float | About 98.6 °C, probably the highest temperature it allows. |
+| `hardwareOptions` | int | Bit flags. 0x10000 means UL-certified; see [Limits](#limits). |
+| `firmwareVersion`, `espFirmwareVersion`, `hardwareVersion` | string | Controller firmware, Wi-Fi module firmware and hardware revision, such as `J5`. |
+| `model`, `macAddress`, `circulatorAddress` | string | The model and the Joule's addresses. |
+
+Fields that only apply to a cook are null or missing without one.
+
+`eventReason` values, from the app: 2 button pressed, 3 low water level,
+4 tipped over, 5 overheating, 6 power loss, 7 heater thermistor failure, 8 bath
+thermistor failure, 12 stuck motor, 14 firmware crash. Only 0 has been seen.
+
+### Joule Turbo and Joule Oven
+
+**From the app.** Both use the same layout:
+
+| Field | Meaning |
+|---|---|
+| `state` | `active`, `idle`, `offline`, `asleep`, `ready`, `busy`, `warming` (keeping warm), `onboarding`, `physicalButtonPress` (waiting for someone to press the appliance's button) or `virtualButtonPress` (waiting for [`finish-wait`](#food-in-food-out)). |
+| `heaters[0]` | `cur_temp` and `temp_sp` in °C, `temp_sp_max`, and `state`: 0 off, 1 preheating, 2 heating, 3 finished. Older Joule Turbo firmware calls it `heater`. |
+| `temperature` | Older Joule Turbo firmware: `current` and `setpoint`, in °C. |
+| `timers[]` | The one with `id` 1 is the cook timer; see [Timers](#timers). Older Joule Turbo firmware has a single `timer`. |
+| `appliance` | `mode` (a number from the [mode table](#joule-oven-steps)), `frozen`, `rotate_state` and `preset`. |
+| `door.state` | Joule Oven: 0 when the door is open. |
+| `motors[0].state` | Joule Oven convection fan: 0 off, 1 on, 2 super. Older firmware calls it `motor`. |
+| `errors[]` | Entries of `{code, ts}`. Codes are below. |
+| `firmware` | `comm_mcu`, `host_mcu`, and sometimes `teFirmware`. |
+| `cookUUID` | The running cook, for [`update-cook`](#change-a-cook-on-newer-appliances). |
+| `currentStep` | Index of the running recipe step. Some firmware reports `recipe.stp` instead. |
+| `onboardingState` | `notStarted` while the appliance is being set up. |
+
+Error codes, from the app:
+
+| Code | Meaning | Code | Meaning |
+|---|---|---|---|
+| 11202 | Heater thermistor failure | 29102 | Tipped over |
+| 11210 | Bath thermistor failure | 29104 | Firmware crash |
+| 16102 | Bad motor | 31101 | Water leakage |
+| 16103 | Stuck motor | 31102 | Low water level |
+| 22101 | Heater broken | 31103 | Current leakage |
+| 29101 | Door open | | |
+
+## Timers
+
+**Joule (verified):** `cookTime` is the timer's length. `timeRemaining` is 0
+until the timer starts, then counts down.
+
+**Joule Turbo and Joule Oven (from the app):** each timer has these fields:
+
+| Field | Meaning |
+|---|---|
+| `state` | 0 reset, 1 running, 2 paused. |
+| `down_from_n` | The timer's length, in seconds. 388803 means there's no timer, and the appliance holds until stopped. |
+| `now` | Seconds left when the appliance sampled the timer. |
+| `timestamp` | When it sampled it, in Unix seconds. |
+
+A running timer ends at `timestamp + now`. The app works out the time left from
+that, so a late message still gives the right time. A paused timer has `now`
+seconds left. One other project reads `timestamp` as the time the timer
+started, but the app's code doesn't.
+
+## Limits
+
+| Appliance | Temperature | Longest cook |
+|---|---|---|
+| Joule (CSJ100) | 20–98 °C | 96 hours |
+| Joule Turbo (BSV600) | 20–92 °C | 96 hours |
+| Joule Oven Air Fryer Pro (BOV950) | By mode; see the [mode table](#joule-oven-steps) | 72 hours, less in most modes |
+
+- These are the app's limits, and the integration checks them before sending a
+  cook. Nobody knows whether the cloud checks them too.
+- UL-certified Joules (sold in North America) need a press of their top button
+  before they'll hold above 85 °C. The app calls this a compliance press. The
+  Joule reports UL certification as bit 0x10000 of `hardwareOptions`.
+- Turbo mode isn't covered. Nobody has worked out how the app requests it, and
+  guessing at heater commands isn't safe.
+
+## Not covered
+
+- **Multi-factor authentication:** login returns `mfa_required`, and the app
+  has no way to continue from there.
+- **BOV970 and BOV870 ovens:** the app knows the models, but has no controls
+  for them.
+- **Espresso machines:** these use the same hosts, but a different Auth0 client
+  and app channel (`brevilleCoffee` or `sageCoffee`). See
+  [Sage Coffee](https://github.com/simonjgreen/sageha).
+- **Bluetooth:** apart from the [key](#joule-bluetooth-key), Bluetooth isn't
+  part of the cloud API. For a Joule, see
+  [ChefSteps Joule Sous Vide](https://github.com/acato/ha-joule).
+
+## Sources
+
+- **The app:** the Breville+ Cooking Android app 1.96.0, disassembled from its
+  Hermes bytecode. Comments in `api.py` and `appliance.py` name the app
+  functions that each part follows.
+- **A real Joule:** traffic between
+  [`scripts/breville_probe.py`](../scripts/breville_probe.py) and a Joule, in
+  October 2026.
+- **Other projects:** these use the same cloud and agree on the shared parts:
+  - [xuio/homeassistant-breville-joule](https://github.com/xuio/homeassistant-breville-joule):
+    Joule Turbo state fields.
+  - [simonjgreen/sagecoffee](https://github.com/simonjgreen/sagecoffee): login
+    and websocket.
+  - [ficusk/ha-joule](https://github.com/ficusk/ha-joule): the Bluetooth key.
+
+## Helping verify
+
+If you have a Joule Turbo, a Joule Oven or a Sage account, you can help move
+these parts from "From the app" to "Verified". Download the integration's
+diagnostics. They include the last 50 websocket messages for each appliance
+and the last 20 requests, with personal details removed. Then attach them to a
+report, as described in
+[Testing an appliance](../README.md#testing-an-appliance). The probe script
+records the same traffic without Home Assistant.
