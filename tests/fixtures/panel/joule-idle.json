@@ -20,9 +20,6 @@
       "max_cook_s": 345600
     },
     "entities": {
-      "continue": {
-        "button": "button.countertop_continue"
-      },
       "target_temperature": {
         "number": "number.countertop_target_temperature"
       },
@@ -40,6 +37,9 @@
       },
       "problem": {
         "binary_sensor": "binary_sensor.countertop_problem"
+      },
+      "continue": {
+        "button": "button.countertop_continue"
       },
       "status": {
         "sensor": "sensor.countertop_status"

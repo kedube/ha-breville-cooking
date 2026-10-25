@@ -29,24 +29,6 @@
       "problem": {
         "binary_sensor": "binary_sensor.kitchen_oven_problem"
       },
-      "oven_mode": {
-        "select": "select.kitchen_oven_mode"
-      },
-      "convection": {
-        "select": "select.kitchen_oven_convection"
-      },
-      "level": {
-        "select": "select.kitchen_oven_level"
-      },
-      "target_temperature": {
-        "number": "number.kitchen_oven_target_temperature"
-      },
-      "cook_time": {
-        "number": "number.kitchen_oven_cook_time"
-      },
-      "continue": {
-        "button": "button.kitchen_oven_continue"
-      },
       "status": {
         "sensor": "sensor.kitchen_oven_status"
       },
@@ -67,6 +49,24 @@
       },
       "error": {
         "sensor": "sensor.kitchen_oven_error"
+      },
+      "continue": {
+        "button": "button.kitchen_oven_continue"
+      },
+      "oven_mode": {
+        "select": "select.kitchen_oven_mode"
+      },
+      "convection": {
+        "select": "select.kitchen_oven_convection"
+      },
+      "level": {
+        "select": "select.kitchen_oven_level"
+      },
+      "target_temperature": {
+        "number": "number.kitchen_oven_target_temperature"
+      },
+      "cook_time": {
+        "number": "number.kitchen_oven_cook_time"
       },
       "cook": {
         "switch": "switch.kitchen_oven_cook"

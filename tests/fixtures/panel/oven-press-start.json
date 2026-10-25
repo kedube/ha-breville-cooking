@@ -13,19 +13,13 @@
     "tested": true,
     "control_allowed": true,
     "can_edit_cook": false,
-    "sensor_target_c": 0.0,
+    "sensor_target_c": null,
     "limits": {
       "min_temp_c": 27.0,
       "max_temp_c": 250.0,
       "max_cook_s": 259200
     },
     "entities": {
-      "target_temperature": {
-        "number": "number.kitchen_oven_target_temperature"
-      },
-      "cook_time": {
-        "number": "number.kitchen_oven_cook_time"
-      },
       "cooking": {
         "binary_sensor": "binary_sensor.kitchen_oven_cooking"
       },
@@ -35,8 +29,17 @@
       "problem": {
         "binary_sensor": "binary_sensor.kitchen_oven_problem"
       },
-      "continue": {
-        "button": "button.kitchen_oven_continue"
+      "cook": {
+        "switch": "switch.kitchen_oven_cook"
+      },
+      "auto_start_timer": {
+        "switch": "switch.kitchen_oven_start_timer_automatically"
+      },
+      "keep_warm": {
+        "switch": "switch.kitchen_oven_keep_warm"
+      },
+      "frozen": {
+        "switch": "switch.kitchen_oven_frozen_food"
       },
       "status": {
         "sensor": "sensor.kitchen_oven_status"
@@ -59,6 +62,15 @@
       "error": {
         "sensor": "sensor.kitchen_oven_error"
       },
+      "target_temperature": {
+        "number": "number.kitchen_oven_target_temperature"
+      },
+      "cook_time": {
+        "number": "number.kitchen_oven_cook_time"
+      },
+      "continue": {
+        "button": "button.kitchen_oven_continue"
+      },
       "oven_mode": {
         "select": "select.kitchen_oven_mode"
       },
@@ -67,18 +79,6 @@
       },
       "level": {
         "select": "select.kitchen_oven_level"
-      },
-      "cook": {
-        "switch": "switch.kitchen_oven_cook"
-      },
-      "auto_start_timer": {
-        "switch": "switch.kitchen_oven_start_timer_automatically"
-      },
-      "keep_warm": {
-        "switch": "switch.kitchen_oven_keep_warm"
-      },
-      "frozen": {
-        "switch": "switch.kitchen_oven_frozen_food"
       }
     }
   },
@@ -153,7 +153,7 @@
     },
     "number.kitchen_oven_target_temperature": {
       "entity_id": "number.kitchen_oven_target_temperature",
-      "state": "32.0",
+      "state": "329.0",
       "attributes": {
         "min": 122.0,
         "max": 482.0,

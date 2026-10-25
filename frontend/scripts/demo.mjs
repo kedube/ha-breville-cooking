@@ -33,5 +33,6 @@ Joule alone:  ${page("panel.html", { fixtures: "joule-ready", live: "1" })}
 Drawings:     ${page("index.html", { module: "all", motion: "on" })}
 
 Fixtures: ${["joule-idle", "joule-preheating", "joule-ready", "joule-cooking", "joule-done", "joule-low-water",
-  "oven-idle", "oven-press-start", "oven-preheating", "oven-ready", "oven-cooking", "oven-door-open", "oven-finished"].join(", ")}.
+  "oven-idle", "oven-press-start", "oven-preheating", "oven-ready", "oven-cooking", "oven-door-open", "oven-keeping-warm",
+  "oven-finished"].join(", ")}.
 Query: fixtures, path (/device-oven or /device-joule), theme (dark), lang (de, fr, …), admin (0), narrow (1), live (1: the clock runs).`);

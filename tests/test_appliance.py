@@ -154,6 +154,51 @@ REAL_OVEN_WAITING = {
 } | {"state": "physicalButtonPress"}
 
 
+# The BOV950 keeping warm after a 350 °F bake with Keep warm on (issue #1, 0.08): still an
+# active cook, now in the keep warm mode (19), with a fresh hour-long timer at 160 °F.
+REAL_OVEN_COOKING_BAKE = {
+    **REAL_OVEN_PREHEATING, "currentInstruction": 10,
+    "heater": {"state": 2, "temp_sp": 175, "temp_sp_f": 350, "temp_sp_m": 161, "cur_temp": 160},
+    "timers": [{"id": 0, "now": 300, "state": 1, "down_from_n": 300, "timestamp": int(NOW.timestamp()) - 290}, None],
+}
+REAL_OVEN_KEEPING_WARM = {
+    **REAL_OVEN_COOKING_BAKE, "currentInstruction": 17,
+    "appliance": {"mode": 19, "rotate_state": 0, "preset": 0, "cook_segment": 0, "frozen": 0},
+    "heater": {"state": 2, "temp_sp": 70, "temp_sp_f": 160, "temp_sp_m": 65, "cur_temp": 160},
+    "timers": [{"id": 0, "now": 3600, "state": 1, "down_from_n": 3600, "timestamp": int(NOW.timestamp()) - 2}, None],
+}
+# A broil runs at a level: the oven reports its setpoints as 0.
+REAL_OVEN_BROILING = {
+    **REAL_OVEN_PREHEATING, "currentInstruction": 10,
+    "appliance": {"mode": 2, "rotate_state": 0, "preset": 0, "cook_segment": 0, "frozen": 0},
+    "heater": {"state": 2, "temp_sp": 0, "temp_sp_f": 0, "temp_sp_m": 0, "cur_temp": 22}, "motor": 0,
+    "timers": [{"id": 0, "now": 180, "state": 1, "down_from_n": 180, "timestamp": int(NOW.timestamp()) - 4}, None],
+}
+
+
+class TestKeepWarmAndBroil:
+    def test_keeping_warm_after_a_cook(self) -> None:
+        cooking = parse_status(MODEL_BOV950, REAL_OVEN_COOKING_BAKE, NOW)
+        assert (cooking.state, cooking.cook_time_s) == (CookState.COOKING, 300)
+        warm = parse_status(MODEL_BOV950, REAL_OVEN_KEEPING_WARM, NOW, previous=cooking)
+        assert (warm.state, warm.mode, warm.active) == (CookState.KEEPING_WARM, "keep_warm", True)
+        # Time remaining counts down keep warm's hour; the cook's length and mode stay the cook's.
+        assert (warm.time_remaining_s, warm.cook_time_s, warm.cook_mode) == (3598, 300, "bake")
+        assert round(warm.target_temp_c, 1) == 71.1  # 160 °F
+        assert warm.sensor_target_c == 65
+        later = parse_status(MODEL_BOV950, REAL_OVEN_KEEPING_WARM, NOW, previous=warm)
+        assert (later.cook_time_s, later.cook_mode) == (300, "bake")
+        # Seen only once it was keeping warm, the cook's length and mode are unknown.
+        unseen = parse_status(MODEL_BOV950, REAL_OVEN_KEEPING_WARM, NOW)
+        assert (unseen.cook_time_s, unseen.cook_mode) == (None, None)
+        assert cooking.cook_mode is None
+
+    def test_a_broil_has_no_setpoint(self) -> None:
+        status = parse_status(MODEL_BOV950, REAL_OVEN_BROILING, NOW)
+        assert (status.state, status.mode, status.cook_time_s) == (CookState.COOKING, "broil", 180)
+        assert (status.target_temp_c, status.sensor_target_c) == (None, None)
+
+
 class TestRealOven:
     def test_idle(self) -> None:
         status = parse_status(MODEL_BOV950, REAL_OVEN_IDLE)
@@ -471,6 +516,14 @@ class TestPreheat:
         assert (joined.preheat_started, joined.preheat_pct) == (None, 41)
         unknown = parse_status(MODEL_BOV950, reading(70), NOW + timedelta(seconds=160), previous=joined)
         assert (unknown.preheat_started, unknown.preheat_pct) == (None, 48)
+        # A warm oven's sensor cooling at first doesn't take progress back (issue #1).
+        warm = reading(139)
+        first = parse_status(MODEL_BOV950, warm, NOW, previous=waiting)
+        assert first.preheat_pct == 95
+        cooled = parse_status(MODEL_BOV950, reading(109), NOW + timedelta(seconds=86), previous=first)
+        assert cooled.preheat_pct == 95  # not its 75% by temperature, nor 29% of the time
+        rising = parse_status(MODEL_BOV950, reading(120), NOW + timedelta(seconds=294), previous=cooled)
+        assert rising.preheat_pct == 98  # the time has caught up
         # Once it's ready, the start is forgotten.
         heated = {**cold, "state": "virtualButtonPress", "currentStepState": "done", "heater": {**cold["heater"], "state": 2}}
         ready = parse_status(MODEL_BOV950, heated, NOW + timedelta(seconds=300), previous=last)

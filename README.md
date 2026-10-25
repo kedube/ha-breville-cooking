@@ -30,7 +30,7 @@ Breville.
 |---|---|---|
 | ChefSteps Joule Sous Vide | CSJ100 | Tested on a real appliance |
 | Joule Turbo Sous Vide | BSV600 | Built from the app's code; untested |
-| Joule Oven Air Fryer Pro | BOV950 | Tested on a real oven: bake and air fry, from start to the end of the cook, with Continue after preheating. Other modes haven't been tried yet |
+| Joule Oven Air Fryer Pro | BOV950 | Tested on a real oven: bake, air fry and broil, from start to the end of the cook, with Continue after preheating and Keep warm. Other modes haven't been tried yet |
 
 Untested appliances are monitor-only until you allow control in the
 integration's [options](#options). If you have one, please
@@ -204,7 +204,7 @@ Every appliance has:
 | Cooking | Binary sensor | On from the start of a cook to its end, including preheating and waiting for the food. |
 | Problem | Binary sensor | On while the appliance reports an error. |
 | Error | Sensor (diagnostic) | The error, such as Low water level or Tipped over. |
-| Preheat | Sensor | How far preheating has got, in percent, from the temperature, as the Breville+ app works it out. An oven also ends preheating after 5 minutes, so once Home Assistant has seen it start, its Preheat counts that time too. Unknown when the appliance isn't preheating. |
+| Preheat | Sensor | How far preheating has got, in percent, from the temperature, as the Breville+ app works it out. An oven also ends preheating after 5 minutes, so once Home Assistant has seen it start, its Preheat counts that time too. It never goes back during a preheat. Unknown when the appliance isn't preheating. |
 | Target temperature | Number | The temperature for the next cook, or of the running one. |
 | Cook time | Number | The timer in minutes, for the next cook or the running one. For sous vide, 0 holds the temperature until you stop it. While an oven preheats it's unknown, because the oven only reports its timer once preheating is done. |
 | Cook | Switch | Turn on to start a cook with these settings, and off to stop it. |
@@ -258,12 +258,19 @@ whichever comes first. From a cold start that's usually the 5 minutes, so
 Status can show Ready for food while Temperature still reads low. The
 Breville+ app counts preheating as done at the same moment. **Preheat** counts
 the 5 minutes too, so it nears 100% as preheating ends, unless Home Assistant
-started partway through; then it goes by the temperature alone.
+started partway through; then it goes by the temperature alone. In an oven
+that's still warm from a broil, the sensor can cool before it heats; Preheat
+holds rather than going back.
 
 When the oven's timer runs out, the oven turns itself off. Status changes to
 Done and **Cooking** turns off, but the cook stays open on the oven, so
 **Cook** stays on. Turn off **Cook** to close it. The app's "a bit more" and
 "keep warm" choices at this point aren't available here.
+
+With **Keep warm** on, the oven keeps the food warm for up to an hour once the
+timer runs out, at 160 °F (70 °C). Status shows Keeping warm, **Active mode**
+keep_warm, and **Time remaining** counts down the hour; **Mode** and **Cook
+time** still show the cook's. Turn off **Cook** to stop keeping warm.
 
 While it cooks, the oven's Temperature reads lower than its target. The oven
 holds its own sensor below the setpoint: about 320 °F (160 °C) for a 350 °F
@@ -376,7 +383,7 @@ unavailable, and you can then delete them from their device page.
 
 - The BSV600 hasn't been tried on a real appliance, so it's monitor-only
   unless you allow control in the [options](#options). On the BOV950, only
-  bake and air fry have been tried.
+  bake, air fry and broil have been tried.
 - A running oven cook's temperature and time can't be changed. The Breville+
   app can't change them either.
 - Nobody has tried a Sage account yet.

@@ -81,7 +81,9 @@ class OvenModeSelect(OvenSettingSelect):
     def current_option(self) -> str | None:
         status = self.appliance.status
         if status.active:
-            return status.mode if status.mode in OVEN_MODES else None
+            # Keeping warm after a cook, the cook's own mode.
+            mode = status.cook_mode or status.mode
+            return mode if mode in OVEN_MODES else None
         return self.appliance.settings.mode
 
     async def async_select_option(self, option: str) -> None:

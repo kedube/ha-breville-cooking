@@ -20,6 +20,12 @@
       "max_cook_s": 259200
     },
     "entities": {
+      "target_temperature": {
+        "number": "number.kitchen_oven_target_temperature"
+      },
+      "cook_time": {
+        "number": "number.kitchen_oven_cook_time"
+      },
       "cooking": {
         "binary_sensor": "binary_sensor.kitchen_oven_cooking"
       },
@@ -28,36 +34,6 @@
       },
       "problem": {
         "binary_sensor": "binary_sensor.kitchen_oven_problem"
-      },
-      "continue": {
-        "button": "button.kitchen_oven_continue"
-      },
-      "oven_mode": {
-        "select": "select.kitchen_oven_mode"
-      },
-      "convection": {
-        "select": "select.kitchen_oven_convection"
-      },
-      "level": {
-        "select": "select.kitchen_oven_level"
-      },
-      "target_temperature": {
-        "number": "number.kitchen_oven_target_temperature"
-      },
-      "cook_time": {
-        "number": "number.kitchen_oven_cook_time"
-      },
-      "cook": {
-        "switch": "switch.kitchen_oven_cook"
-      },
-      "auto_start_timer": {
-        "switch": "switch.kitchen_oven_start_timer_automatically"
-      },
-      "keep_warm": {
-        "switch": "switch.kitchen_oven_keep_warm"
-      },
-      "frozen": {
-        "switch": "switch.kitchen_oven_frozen_food"
       },
       "status": {
         "sensor": "sensor.kitchen_oven_status"
@@ -79,6 +55,30 @@
       },
       "error": {
         "sensor": "sensor.kitchen_oven_error"
+      },
+      "continue": {
+        "button": "button.kitchen_oven_continue"
+      },
+      "oven_mode": {
+        "select": "select.kitchen_oven_mode"
+      },
+      "convection": {
+        "select": "select.kitchen_oven_convection"
+      },
+      "level": {
+        "select": "select.kitchen_oven_level"
+      },
+      "cook": {
+        "switch": "switch.kitchen_oven_cook"
+      },
+      "auto_start_timer": {
+        "switch": "switch.kitchen_oven_start_timer_automatically"
+      },
+      "keep_warm": {
+        "switch": "switch.kitchen_oven_keep_warm"
+      },
+      "frozen": {
+        "switch": "switch.kitchen_oven_frozen_food"
       }
     }
   },

@@ -29,7 +29,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.breville_cooking.const import CONF_ALLOW_UNTESTED_CONTROL, DOMAIN
 from custom_components.breville_cooking.panel_api import panel_message
 
-from .common import JOULE, OVEN, FakeSocket, csj, flush, push
+from .common import JOULE, OVEN, FakeSocket, call, csj, flush, push
 
 FIXTURES = Path(__file__).parent / "fixtures" / "panel"
 NOW = datetime(2026, 10, 25, 18, 0, tzinfo=UTC)
@@ -65,7 +65,12 @@ def timer(left: int, total: int = 600, running: bool = True) -> list:
              "state": 1 if running else 2, "down_from_n": total, "usage": 6}, None]
 
 
-SCENARIOS: dict[str, tuple[str, str, list]] = {
+# Keeping warm after a 350 °F bake with Keep warm on (issue #1, 0.08): an active cook in the keep
+# warm mode, with a fresh hour-long timer at 160 °F.
+KEEP_WARM = {"appliance": {"mode": 19, "frozen": 0}, "currentInstruction": 17,
+             "heater": {"state": 2, "temp_sp": 70, "temp_sp_f": 160, "temp_sp_m": 65, "cur_temp": 160}}
+
+SCENARIOS: dict[str, tuple] = {
     "joule-idle": ("metric", JOULE, [lambda: csj("IDLE", 0, setPoint=None, cookId=None, bathTemp=21.2)]),
     "joule-preheating": ("metric", JOULE, [lambda: csj("ACTIVE", 1, bathTemp=38.4, cookTime=5400)]),
     "joule-ready": ("metric", JOULE, [lambda: csj("ACTIVE", 2, bathTemp=56.0, cookTime=5400)]),
@@ -89,6 +94,10 @@ SCENARIOS: dict[str, tuple[str, str, list]] = {
     "oven-cooking": ("us_customary", OVEN, [lambda: oven(**AIR_FRY, timers=timer(468))]),
     "oven-cooking-metric": ("metric", OVEN, [lambda: oven(**AIR_FRY, cfg={"temp_unit": 0, "vol": 11}, timers=timer(468))]),
     "oven-door-open": ("us_customary", OVEN, [lambda: oven(**AIR_FRY, door=0, timers=timer(402, running=False))]),
+    "oven-keeping-warm": ("us_customary", OVEN, [
+        lambda: oven(timers=timer(10, total=300)),
+        lambda: oven(**KEEP_WARM, timers=timer(3598, total=3600)),
+    ], [("switch", "turn_on", "switch.kitchen_oven_keep_warm")]),
     "oven-finished": ("us_customary", OVEN, [
         lambda: oven("virtualButtonPress", currentStepState="done",
                      heater={"state": 0, "temp_sp": 175, "temp_sp_f": 350, "temp_sp_m": 161, "cur_temp": 160}),
@@ -144,7 +153,7 @@ def _fixture(hass: HomeAssistant, entry: MockConfigEntry, serial: str) -> dict:
 async def test_panel_fixture(
     hass: HomeAssistant, freezer, client, socket: FakeSocket, name: str
 ) -> None:
-    units, serial, messages = SCENARIOS[name]
+    units, serial, messages, *settings = SCENARIOS[name]
     freezer.move_to(NOW)
     hass.config.units = US_CUSTOMARY_SYSTEM if units == "us_customary" else METRIC_SYSTEM
     entry = MockConfigEntry(
@@ -159,6 +168,8 @@ async def test_panel_fixture(
     for each in (JOULE, OVEN):
         device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, each)})
         dr.async_get(hass).async_update_device(device.id, area_id=kitchen.id)
+    for domain, service, entity_id in settings[0] if settings else []:
+        await call(hass, domain, service, entity_id)
     await push(hass, socket, *(make() for make in messages))
     fixture = _fixture(hass, entry, serial)
     path = FIXTURES / f"{name}.json"

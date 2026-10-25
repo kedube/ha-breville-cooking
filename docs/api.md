@@ -254,8 +254,8 @@ Temperatures go from 20 to 92 °C.
 
 #### Joule Oven steps
 
-**Verified** on a Joule Oven for bake and air fry; other modes are from the
-app. The cloud accepted the steps and returned them with `sound`,
+**Verified** on a Joule Oven for bake, air fry and broil (level 3, High), and
+keep warm after a cook; other modes are from the app. The cloud accepted the steps and returned them with `sound`,
 `enableNotification`, `notificationTitle` and `notificationBody` added to each
 phase. The oven then waited for someone to press Start (`physicalButtonPress`).
 With `"defaultAutostart": true`, its timer started by itself after preheating
@@ -604,8 +604,8 @@ parts marked **Oven**; the rest are from the app.
 
 | Field | Meaning |
 |---|---|
-| `state` | **Oven:** `idle`; `physicalButtonPress` (after a remote start, waiting for someone to press Start); `active`; `virtualButtonPress` (waiting for the app, see below); and briefly `stopped` after [`stop-recipe`](#stop-a-cook). From the app: `offline`, `asleep`, `ready`, `busy`, `warming` (keeping warm) and `onboarding`. |
-| `heater` | **Oven:** `cur_temp` and `temp_sp` in °C, `temp_sp_f` in °F, `temp_sp_m` (see below), and `state`: 0 off, 1 preheating, 2 heating, 3 finished. The app also reads a `heaters` list. |
+| `state` | **Oven:** `idle`; `physicalButtonPress` (after a remote start, waiting for someone to press Start); `active`; `virtualButtonPress` (waiting for the app, see below); and briefly `stopped` after [`stop-recipe`](#stop-a-cook). Keeping warm after a cook, it stays `active`, with `appliance.mode` 19 (keep warm), a new 3600-second timer and `temp_sp` 70 (`temp_sp_f` 160, `temp_sp_m` 65). From the app: `offline`, `asleep`, `ready`, `busy`, `warming` (keeping warm) and `onboarding`. |
+| `heater` | **Oven:** `cur_temp` and `temp_sp` in °C, `temp_sp_f` in °F, `temp_sp_m` (see below), and `state`: 0 off, 1 preheating, 2 heating, 3 finished. A broil, which runs at a level, reports the three setpoints as 0, and doesn't preheat. The app also reads a `heaters` list. |
 | `temperature` | Older Joule Turbo firmware: `current` and `setpoint`, in °C. |
 | `timers` | **Oven:** `[null, null]` while no timer runs, including during preheat. The app's cook timer is the one with `id` 1, or else the first one; the oven's has `id` 0. See [Timers](#timers). Older Joule Turbo firmware has a single `timer`. |
 | `appliance` | **Oven:** `mode` (a number from the [mode table](#joule-oven-steps)), `frozen`, `rotate_state`, `preset` and `cook_segment`. |

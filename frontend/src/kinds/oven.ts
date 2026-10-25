@@ -70,6 +70,19 @@ function modeOf(ctx: ApplianceContext): OvenModeSpec {
   return (id && ctx.modes.get(id)) || ctx.modes.get("bake") || FALLBACK_MODE;
 }
 
+/**
+ * The mode drawn. Keeping warm after a cook, it's the cook's own, which Mode still shows, so the
+ * food stays in the oven; a keep warm started on the oven draws its own covered dish.
+ */
+function drawnMode(ctx: ApplianceContext, phase: Phase): OvenModeSpec {
+  if (phase === "keeping_warm") {
+    const cooked = read(ctx, "oven_mode", "select");
+    const spec = cooked ? ctx.modes.get(cooked) : undefined;
+    if (spec) return spec;
+  }
+  return modeOf(ctx);
+}
+
 function modeName(ctx: ApplianceContext): string {
   return optionLabel(ctx.t, "mode", modeId(ctx) ?? modeOf(ctx).id);
 }
@@ -153,8 +166,7 @@ function ovenLcd(ctx: ApplianceContext, phase: Phase): OvenLcd | null {
   const mode = modeOf(ctx);
   const error = phase === "error";
   const warm = phase === "keeping_warm";
-  // A setpoint under the mode's lowest is the oven's placeholder (it reports 0 °C while it waits
-  // for Start), not a temperature: the digits stay blank.
+  // A setpoint under the mode's lowest can't be the cook's: the digits stay blank.
   const lowest = mode.temperature_c ? fromCelsius(ctx.hass, mode.temperature_c.min) : null;
   const reported = target(ctx);
   const value = reported !== null && lowest !== null && reported < lowest - 1 ? null : reported;
@@ -198,7 +210,7 @@ export const oven: KindModel = {
 
   drawingState(ctx): OvenState {
     const phase = phaseOf(ctx);
-    const mode = modeOf(ctx);
+    const mode = drawnMode(ctx, phase);
     const open = isOn(ctx, "door", "binary_sensor") === true;
     const heating = HEATING.has(phase) && !open;
     const fan = read(ctx, "convection", "select");

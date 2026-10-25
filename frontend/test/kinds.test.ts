@@ -120,9 +120,8 @@ describe("the oven", () => {
     };
     // Asleep while idle.
     expect(lcd("oven-idle")).toBeNull();
-    // Waiting for Start: pale, the settings and the rack, PRESS START. (The oven reports a 0 °C
-    // setpoint while it waits, so the digits stay blank.)
-    expect(lcd("oven-press-start")).toMatchObject({ lit: false, mode: "bake", temp: null, unit: "F", rack: 6, prompt: "press_start" });
+    // Waiting for Start: pale, the cook's settings and the rack, PRESS START.
+    expect(lcd("oven-press-start")).toMatchObject({ lit: false, mode: "bake", temp: "329", unit: "F", rack: 6, prompt: "press_start" });
     expect(lcd("oven-preheating")).toMatchObject({ lit: true, prompt: "preheating", rack: 6 });
     // Cooking: orange, the time left in minutes and seconds.
     expect(lcd("oven-cooking")).toMatchObject({
@@ -130,6 +129,17 @@ describe("the oven", () => {
     });
     expect(lcd("oven-cooking-metric")).toMatchObject({ temp: "205", unit: "C" });
     expect(lcd("oven-finished")).toMatchObject({ lit: false, time: "donE", timeUnits: null });
+  });
+
+  it("keeps the cook's food in the oven while it keeps warm", () => {
+    const ctx = contextFor("oven-keeping-warm");
+    const model = kindModel(ctx.appliance);
+    expect(model.phase(ctx)).toBe("keeping_warm");
+    expect(model.status(ctx).text).toBe("Keeping warm");
+    expect(model.drawingState(ctx)).toMatchObject({
+      mode: "bake", rack: 6, accessory: "roasting_pan", food: "croissants", elements: "low",
+      lcd: { lit: true, mode: "keep_warm", temp: null, time: "59:58", timeUnits: "min_sec" },
+    });
   });
 
   it("counts down while the timer runs, and holds while the door is open", () => {

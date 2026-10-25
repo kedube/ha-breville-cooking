@@ -331,6 +331,9 @@ class ApplianceStatus:
     # When an oven was seen to start preheating; None when preheating was
     # already under way at the first report Home Assistant saw.
     preheat_started: datetime | None = None
+    # While an oven keeps warm after a cook, the mode it cooked in; None when
+    # Home Assistant didn't see the cook.
+    cook_mode: str | None = None
     # The temperature an oven holds its own sensor at while it cooks
     # (heater.temp_sp_m), below the setpoint.
     sensor_target_c: float | None = None
@@ -527,7 +530,10 @@ def _parse_task_engine(
         over = heater_state in (HeaterState.OFF, HeaterState.FINISHED) or _timer_ran_out(timer, now)
         status.state = CookState.DONE if over else CookState.READY
         status.finished = heater_state == HeaterState.OFF
-    elif raw_state == "warming":
+    elif raw_state == "warming" or (raw_state == "active" and status.mode == "keep_warm"):
+        # A real BOV950 keeps warm after a cook as an active cook in the keep
+        # warm mode, with a new hour-long timer (issue #1); the app also knows
+        # a "warming" state.
         status.state = CookState.KEEPING_WARM
     elif raw_state == "active":
         status.state = {
@@ -547,7 +553,7 @@ def _parse_task_engine(
     if status.active:
         status.target_temp_c = _target_temp_c(s, heater, legacy)
         if MODELS[model].kind is Kind.OVEN:
-            status.sensor_target_c = _num(heater.get("temp_sp_m"))
+            status.sensor_target_c = _num(heater.get("temp_sp_m")) or None
         if status.state is CookState.PREHEATING:
             target = status.target_temp_c
             if MODELS[model].kind is Kind.OVEN:
@@ -562,8 +568,30 @@ def _parse_task_engine(
                     elapsed = (now - status.preheat_started).total_seconds()
                     timed = max(0, min(100, round(100 * elapsed / OVEN_PREHEAT_LIMIT_S)))
                     status.preheat_pct = max(status.preheat_pct or 0, timed)
+            # A warm oven's sensor can cool before it heats (issue #1), but
+            # progress never goes back during a preheat.
+            if (
+                previous is not None
+                and previous.state is CookState.PREHEATING
+                and previous.cook_id == status.cook_id
+                and previous.preheat_pct is not None
+            ):
+                status.preheat_pct = max(status.preheat_pct or 0, previous.preheat_pct)
+        # Keeping warm after a cook, the cook's mode and length are the ones it
+        # had while cooking, when Home Assistant saw it: the mode is keep warm's
+        # now, and the timer keep warm's hour.
+        seen_cooking = (
+            status.state is CookState.KEEPING_WARM
+            and previous is not None
+            and previous.state in (CookState.COOKING, CookState.KEEPING_WARM)
+            and previous.cook_id == status.cook_id
+        )
+        if seen_cooking:
+            status.cook_mode = previous.cook_mode or previous.mode
         if timer and timer.get("down_from_n") not in (None, SKIP_TIMER_VALUE):
             status.cook_time_s = int(timer["down_from_n"])
+            if status.state is CookState.KEEPING_WARM:
+                status.cook_time_s = previous.cook_time_s if seen_cooking else None
             if timer.get("state") in (TimerState.RUNNING, TimerState.PAUSED):
                 remaining = int(timer.get("now") or 0)
                 if timer.get("state") == TimerState.RUNNING:
@@ -585,7 +613,8 @@ def _target_temp_c(
     fahrenheit = _num(heater.get("temp_sp_f"))
     if cfg.get("temp_unit") == TEMP_UNIT_FAHRENHEIT and fahrenheit:
         return (fahrenheit - 32) * 5 / 9
-    return _num(heater.get("temp_sp", legacy.get("setpoint")))
+    # A broil runs at a level, and reports a setpoint of 0 (issue #1).
+    return _num(heater.get("temp_sp", legacy.get("setpoint"))) or None
 
 
 def _running_remaining(timer: dict[str, Any], remaining: int, now: datetime) -> int:

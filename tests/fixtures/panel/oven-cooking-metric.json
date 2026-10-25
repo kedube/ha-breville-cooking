@@ -38,21 +38,6 @@
       "level": {
         "select": "select.kitchen_oven_level"
       },
-      "cook": {
-        "switch": "switch.kitchen_oven_cook"
-      },
-      "auto_start_timer": {
-        "switch": "switch.kitchen_oven_start_timer_automatically"
-      },
-      "keep_warm": {
-        "switch": "switch.kitchen_oven_keep_warm"
-      },
-      "frozen": {
-        "switch": "switch.kitchen_oven_frozen_food"
-      },
-      "continue": {
-        "button": "button.kitchen_oven_continue"
-      },
       "status": {
         "sensor": "sensor.kitchen_oven_status"
       },
@@ -73,6 +58,21 @@
       },
       "error": {
         "sensor": "sensor.kitchen_oven_error"
+      },
+      "continue": {
+        "button": "button.kitchen_oven_continue"
+      },
+      "cook": {
+        "switch": "switch.kitchen_oven_cook"
+      },
+      "auto_start_timer": {
+        "switch": "switch.kitchen_oven_start_timer_automatically"
+      },
+      "keep_warm": {
+        "switch": "switch.kitchen_oven_keep_warm"
+      },
+      "frozen": {
+        "switch": "switch.kitchen_oven_frozen_food"
       },
       "target_temperature": {
         "number": "number.kitchen_oven_target_temperature"

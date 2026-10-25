@@ -17,6 +17,7 @@ import oven_cooking_metric from "../../../tests/fixtures/panel/oven-cooking-metr
 import oven_door_open from "../../../tests/fixtures/panel/oven-door-open.json";
 import oven_finished from "../../../tests/fixtures/panel/oven-finished.json";
 import oven_idle from "../../../tests/fixtures/panel/oven-idle.json";
+import oven_keeping_warm from "../../../tests/fixtures/panel/oven-keeping-warm.json";
 import oven_preheating from "../../../tests/fixtures/panel/oven-preheating.json";
 import oven_press_start from "../../../tests/fixtures/panel/oven-press-start.json";
 import oven_ready from "../../../tests/fixtures/panel/oven-ready.json";
@@ -54,6 +55,7 @@ export const FIXTURES: Record<string, Fixture> = {
   "oven-door-open": oven_door_open as unknown as Fixture,
   "oven-finished": oven_finished as unknown as Fixture,
   "oven-idle": oven_idle as unknown as Fixture,
+  "oven-keeping-warm": oven_keeping_warm as unknown as Fixture,
   "oven-preheating": oven_preheating as unknown as Fixture,
   "oven-press-start": oven_press_start as unknown as Fixture,
   "oven-ready": oven_ready as unknown as Fixture,
