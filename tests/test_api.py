@@ -280,9 +280,18 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sorted(body), ["applianceModel", "timestamp"])
         self.assertEqual(body["applianceModel"], "CSJ100")
 
-        await self.client.finish_wait(SERIAL, "BOV950", {"cookUuid": "c", "wait": {"user": 2}})
+        await self.client.finish_wait(SERIAL, "BSV600", {"cookUuid": "c", "wait": {"user": 2}})
         _, _, _, body = self.cloud.requests[-1]
         self.assertEqual(list(body), ["applianceModel", "timestamp", "cookUuid", "wait"])
+
+        await self.client.send_step(SERIAL, "BOV950", {"ctrlFirmware": "1"}, "manual_x", 1)
+        _, path, _, body = self.cloud.requests[-1]
+        self.assertEqual(path, f"/appliance/v1/appliances/{SERIAL}/send-step")
+        self.assertEqual(
+            {k: v for k, v in body.items() if k != "timestamp"},
+            {"applianceModel": "BOV950", "firmware": {"ctrlFirmware": "1"},
+             "recipeId": "manual_x", "stepIndex": 1},
+        )
 
         await self.client.stop_recipe(SERIAL, "CSJ100", firmware=api.csj_firmware(IDLE_STATE))
         _, path, _, body = self.cloud.requests[-1]

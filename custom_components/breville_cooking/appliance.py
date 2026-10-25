@@ -49,6 +49,9 @@ class ModelInfo:
     # Whether control has been confirmed on a real appliance. Untested models
     # are monitor-only unless the user allows control in the options.
     tested: bool = False
+    # Whether a running cook's temperature and time can be changed. The app
+    # offers no way to for the oven, which ignored update-cook (issue #1).
+    can_edit_cook: bool = True
 
 
 MODELS: dict[str, ModelInfo] = {
@@ -62,9 +65,12 @@ MODELS: dict[str, ModelInfo] = {
     ),
     MODEL_BOV950: ModelInfo(
         MODEL_BOV950, "Joule Oven Air Fryer Pro", "Breville", Kind.OVEN,
-        27.0, 250.0, 72 * HOUR,
+        27.0, 250.0, 72 * HOUR, can_edit_cook=False,
     ),
 }
+# The app's doesApplianceSupportFinishWaitCommand. For other models (the
+# oven), its button goes on to the recipe's next cook step with send-step.
+FINISH_WAIT_MODELS = frozenset({MODEL_CSJ100, MODEL_BSV600})
 
 
 class CookState(StrEnum):
@@ -802,8 +808,8 @@ def build_bov950_steps(settings: CookSettings) -> list[dict[str, Any]]:
 def build_finish_wait(model: str, state: dict[str, Any]) -> dict[str, Any]:
     """Fields finish-wait adds to {applianceModel, timestamp} (useFinishWaitCommand).
 
-    Newer appliances ignore a bare finish-wait (issue #1): the app also sends
-    where the cook is. The Joule's bare one was verified.
+    The app also sends where the cook is, for the Joule Turbo. The Joule's
+    bare finish-wait was verified.
     """
     if model == MODEL_CSJ100:
         return {}
@@ -818,6 +824,27 @@ def build_finish_wait(model: str, state: dict[str, Any]) -> dict[str, Any]:
     body["stepIndex"] = _shadow_index(state, "currentStep", "stp")
     body["wait"] = {"user": 2}
     return body
+
+
+@dataclass(frozen=True)
+class NextStep:
+    recipe_id: str
+    step_index: int
+
+
+def build_next_step(state: dict[str, Any]) -> NextStep:
+    """What send-step needs to go on from a waiting step (NextRecipeStep).
+
+    The app picks the next step that isn't "a bit more", keep warm or a
+    preheat. A manual cook waits after its preheat step, so that's the next
+    one: the cook step.
+    """
+    recipe = state.get("recipe")
+    recipe_id = recipe.get("id") if isinstance(recipe, dict) else recipe
+    step = _shadow_index(state, "currentStep", "stp")
+    if not recipe_id or not isinstance(step, int):
+        raise ValueError("No cook is waiting")
+    return NextStep(str(recipe_id), step + 1)
 
 
 @dataclass(frozen=True)

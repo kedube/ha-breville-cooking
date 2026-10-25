@@ -28,7 +28,7 @@ Breville.
 |---|---|---|
 | ChefSteps Joule Sous Vide | CSJ100 | Tested on a real appliance |
 | Joule Turbo Sous Vide | BSV600 | Built from the app's code; untested |
-| Joule Oven Air Fryer Pro | BOV950 | Tried on a real oven: starting and stopping bake and air fry, and their timers. Changing a running cook doesn't work yet; the rest untested |
+| Joule Oven Air Fryer Pro | BOV950 | Tried on a real oven: starting and stopping bake and air fry, their timers, and the end of a cook. Continue after preheating and other modes are untested |
 
 Untested appliances are monitor-only until you allow control in the
 integration's [options](#options). If you have one, please
@@ -163,9 +163,10 @@ Settings for the next cook are kept in Home Assistant, survive restarts, and
 go to the appliance only when a cook starts. Changing settings in the
 Breville+ app doesn't change them here.
 While a cook runs, **Target temperature** and **Cook time** show the running
-cook, and changing them changes it. The oven's **Mode**, **Convection** and
-**Level** can only be changed while it's idle. Like the app, the integration
-keeps to each model's temperature and time limits.
+cook, and on a sous vide changing them changes it. As in the app, a running
+oven cook can't be changed: its **Cook time** shows the cook's length, and all
+of its settings can only be changed while it's idle. Like the app, the
+integration keeps to each model's temperature and time limits.
 
 ### A sous vide cook, step by step
 
@@ -182,6 +183,10 @@ keeps to each model's temperature and time limits.
 After a remote start, the oven waits for you to press Start on its panel, just
 as it does when you start a cook from the Breville+ app. Until then, Status
 shows Press the button on the appliance.
+
+If the oven's timer doesn't start by itself, press **Continue** once Status
+shows Ready for food. Pressing Start on the oven at that point cancels the
+cook.
 
 When the oven's timer runs out, the oven turns itself off. Status changes to
 Done and **Cooking** turns off, but the cook stays open on the oven, so
@@ -300,8 +305,8 @@ unavailable, and you can then delete them from their device page.
 - The BSV600 hasn't been tried on a real appliance, and the BOV950 only in
   part, so they're monitor-only unless you allow control in the
   [options](#options).
-- Changing the temperature or time of a running oven cook doesn't work yet:
-  the oven accepts the change but keeps its settings.
+- A running oven cook's temperature and time can't be changed. The Breville+
+  app can't change them either.
 - Nobody has tried a Sage account yet.
 - Accounts with multi-factor authentication can't log in.
 - The BSV600's Turbo mode isn't offered.

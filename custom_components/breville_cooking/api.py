@@ -544,6 +544,22 @@ class BrevilleClient:
             {"applianceModel": model, "timestamp": int(time.time() * 1000), **(extra or {})},
         )
 
+    async def send_step(
+        self, serial: str, model: str, firmware: Any, recipe_id: str, step_index: int
+    ) -> Any:
+        """Go on to a step of the running recipe (the app's next-step button)."""
+        return await self.request(
+            "POST",
+            self.appliance_url(serial, "send-step"),
+            {
+                "applianceModel": model,
+                "firmware": firmware,
+                "recipeId": recipe_id,
+                "stepIndex": step_index,
+                "timestamp": int(time.time() * 1000),
+            },
+        )
+
     async def update_cook(
         self,
         serial: str,

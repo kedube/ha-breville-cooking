@@ -313,8 +313,8 @@ async def test_untested_models_are_monitor_only(
 
     # The option applies straight away, without a reload.
     hass.config_entries.async_update_entry(entry, options={CONF_ALLOW_UNTESTED_CONTROL: True})
-    await call(hass, "number", "set_value", "number.kitchen_oven_target_temperature", value=200)
-    client.update_cook.assert_awaited_once()
+    await call(hass, "switch", "turn_on", "switch.kitchen_oven_cook")
+    client.load_manual_recipe.assert_awaited_once()
     await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -354,15 +354,16 @@ async def test_oven_settings_and_start_service(
     with pytest.raises(ServiceValidationError):
         await call(hass, DOMAIN, "start_cook", "switch.kitchen_oven_keep_warm", temperature=200)
 
-    # Cooking: the mode can't change, and the temperature edits the cook.
+    # Cooking: as in the app, nothing about the running cook can change.
     await push(hass, socket, OVEN_ROASTING)
     assert hass.states.get("sensor.kitchen_oven_active_mode").state == "roast"
     with pytest.raises(ServiceValidationError):
         await call(hass, "select", "select_option", "select.kitchen_oven_mode", option="bake")
-    await call(hass, "number", "set_value", "number.kitchen_oven_target_temperature", value=200)
-    client.update_cook.assert_awaited_once_with(
-        OVEN, "BOV950", [{"name": "cookSetPoint", "value": 200.0}], uuid="c-9", step=1
-    )
+    for entity_id, value in (("target_temperature", 200), ("cook_time", 20)):
+        with pytest.raises(ServiceValidationError) as err:
+            await call(hass, "number", "set_value", f"number.kitchen_oven_{entity_id}", value=value)
+        assert err.value.translation_key == "stop_cook_first"
+    client.update_cook.assert_not_awaited()
     await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -393,11 +394,13 @@ async def test_real_oven_cook(
     assert hass.states.get("sensor.kitchen_oven_status").state == "ready"
     assert hass.states.get("number.kitchen_oven_cook_time").state == "unknown"
     await call(hass, "button", "press", "button.kitchen_oven_continue")
-    client.finish_wait.assert_awaited_once_with(OVEN, "BOV950", {
-        "cookUuid": "cook-7",
-        "firmware": {"commFirmware": "1.10.131", "ctrlFirmware": "1.10.21", "teFirmware": "2.4.0"},
-        "stageIndex": 0, "stepIndex": 0, "wait": {"user": 2},
-    })
+    # The oven ignores finish-wait; the app goes on to the cook step instead.
+    client.finish_wait.assert_not_awaited()
+    client.send_step.assert_awaited_once_with(
+        OVEN, "BOV950",
+        {"commFirmware": "1.10.131", "ctrlFirmware": "1.10.21", "teFirmware": "2.4.0"},
+        "manual_x", 1,
+    )
 
     # Its only timer has id 0. The door was opened and closed with 339 s left.
     started = int(dt_util.utcnow().timestamp())
@@ -405,7 +408,8 @@ async def test_real_oven_cook(
     await push(hass, socket, real_oven(2, timers=[timer, None]))
     assert hass.states.get("sensor.kitchen_oven_status").state == "cooking"
     assert 5 <= float(hass.states.get("sensor.kitchen_oven_time_remaining").state) <= 6
-    assert hass.states.get("number.kitchen_oven_cook_time").state == "6"
+    # The cook's length, since it can't be changed.
+    assert hass.states.get("number.kitchen_oven_cook_time").state == "15"
     assert hass.states.get("binary_sensor.kitchen_oven_cooking").state == STATE_ON
 
     # Time's up: a report with the run-out timer, then the heater goes off.

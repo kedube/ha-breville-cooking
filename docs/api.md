@@ -172,8 +172,9 @@ Unix time in milliseconds. A successful command returns an empty body, except
 |---|---|---|---|
 | [`load-manual-recipe`](#start-a-cook) | Start a cook | Verified | Verified on the oven; from the app for the Joule Turbo |
 | [`send-csj-message`](#change-a-joule-cook) | Change a running Joule cook | Verified | Not used |
-| [`update-cook`](#change-a-cook-on-newer-appliances) | Change a running cook | Not used | From the app; the oven accepted it but didn't change |
-| [`finish-wait`](#food-in-food-out) | Food is in, or food is out | Verified | From the app; the oven ignored the Joule's shorter body |
+| [`update-cook`](#change-a-cook-on-newer-appliances) | Change a running cook | Not used | From the app for the Joule Turbo; the app doesn't offer it for the oven, which ignored it |
+| [`finish-wait`](#food-in-food-out) | Food is in, or food is out | Verified | From the app for the Joule Turbo; the app doesn't use it for the oven, which ignored it |
+| [`send-step`](#go-on-to-the-next-step) | Go on to the next step of the running recipe | Not used | From the app; how the app continues an oven cook |
 | [`stop-recipe`](#stop-a-cook) | Stop the cook | Verified | Verified on the oven; from the app for the Joule Turbo |
 
 Several commands include the appliance's firmware, copied from its
@@ -382,7 +383,10 @@ protocol. To change the temperature or time of the running cook, send a
 
 ### Change a cook on newer appliances
 
-**From the app.** The Joule Turbo and Joule Oven use `update-cook`:
+**From the app.** The Joule Turbo uses `update-cook`. For a running Joule Oven
+cook, the app offers only "View cook" and "Stop", with no way to change the
+temperature or time, so the integration doesn't change running oven cooks
+either.
 
 ```json
 {
@@ -404,7 +408,7 @@ protocol. To change the temperature or time of the running cook, send a
   `down_from_n` against the value.
 - On a Joule Oven baking with the timer running, a `cookSetPoint` and a
   `cookTime` update each returned 200, but the oven kept its setpoint and
-  timer. The bodies matched what the app sends, so why is still unknown.
+  timer.
 
 ### Food in, food out
 
@@ -417,17 +421,15 @@ appliance the food is out.
 {"applianceModel": "CSJ100", "timestamp": 1792804189503}
 ```
 
-A Joule Oven that was waiting for the food after preheating answered that body
-with 200 but didn't start its timer. For the Joule Turbo and Joule Oven, the
-app (`useFinishWaitCommand`) adds where the cook is. It skips the request if
-`cookUUID`, `currentStage` or `currentStep` is missing:
+The app (`useFinishWaitCommand`) adds where the cook is, and skips the request
+if `cookUUID`, `currentStage` or `currentStep` is missing:
 
 ```json
 {
-  "applianceModel": "BOV950",
+  "applianceModel": "BSV600",
   "timestamp": 1792884279277,
   "cookUuid": "…",
-  "firmware": {"commFirmware": "1.10.131", "ctrlFirmware": "1.10.21", "teFirmware": "2.4.0"},
+  "firmware": {"commFirmware": "…", "ctrlFirmware": "…"},
   "stageIndex": 0,
   "stepIndex": 0,
   "wait": {"user": 2}
@@ -438,6 +440,33 @@ app (`useFinishWaitCommand`) adds where the cook is. It skips the request if
   `currentStage` and `currentStep`. When `recipe` is an object, its `stg` and
   `stp` come first, and its `phase` is sent as `phaseIndex`.
 - `wait` is always `{"user": 2}`.
+
+The app only uses `finish-wait` for the Joule and Joule Turbo
+(`doesApplianceSupportFinishWaitCommand`). A Joule Oven waiting for the food
+after preheating answered both the short body and this one with 200, but
+didn't start its timer. For the oven, the app's button goes on to the next
+step instead.
+
+### Go on to the next step
+
+**From the app; not tried yet.** For a Joule Oven waiting after preheating, the
+app's button (`NextRecipeStep`) sends `send-step` for the next cook step:
+
+```json
+{
+  "applianceModel": "BOV950",
+  "firmware": {"commFirmware": "1.10.131", "ctrlFirmware": "1.10.21", "teFirmware": "2.4.0"},
+  "recipeId": "manual_5VQzGkAXTefbvToVRjZ5oU",
+  "stepIndex": 1,
+  "timestamp": 1792892582012
+}
+```
+
+- `recipeId` is the reported `recipe`, or its `id` when it's an object.
+- `stepIndex` is the first step after `currentStep` that isn't "a bit more",
+  keep warm, or a preheat (a single phase of 0 seconds). For a manual cook
+  that's waiting after its preheat step, that's the cook step:
+  `currentStep + 1`.
 
 ### Stop a cook
 
@@ -601,17 +630,19 @@ from `temp_sp_f`.
 
 `cur_temp` is the oven's own sensor, which it holds near `temp_sp_m` rather
 than the setpoint: 161 °C for a 175 °C (350 °F) bake, and 191 °C for 205 °C.
-The app's preheat progress is `cur_temp / (temp_sp_m − 15)`, or
-`cur_temp / (0.9 × temp_sp_m)` at 150 °C and below. The oven decides for itself
-when preheating is done; once it went ready at a `cur_temp` of 91 °C on a
-175 °C bake. While idle, the oven stops updating `cur_temp` after a while: it
-still reported 59 °C six hours after a cook.
+The app's preheat progress bar is `cur_temp / (temp_sp_m − 15)`, or
+`cur_temp / (0.9 × temp_sp_m)` at 150 °C and below. But the app counts
+preheating as done once `heater.state` is 2 or 3, which the oven decides for
+itself: once at a `cur_temp` of 91 °C on a 175 °C bake, and once at 105 °C,
+about a minute before the oven beeped. While idle, the oven stops updating
+`cur_temp` after a while: it still reported 59 °C six hours after a cook.
 
 `virtualButtonPress` came in two cases:
 
 - **Waiting for the food** after preheating, when the timer doesn't start by
-  itself: `currentStepState` `done`, `heater.state` 2 and no timer. A
-  [`finish-wait`](#food-in-food-out) should start the timer.
+  itself: `currentStepState` `done`, `heater.state` 2 and no timer. The app
+  goes on with [`send-step`](#go-on-to-the-next-step). Pressing Start on the
+  oven at this point cancelled the cook: the oven went idle without a beep.
 - **The cook is over:** when the timer ran out, the oven beeped and turned
   off. The first report still had the timer, with no time left. A second later
   `heater.state` was 0, the timers were `null`, and `temp_sp_f` was worked out

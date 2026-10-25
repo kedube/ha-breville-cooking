@@ -16,6 +16,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import BrevilleConfigEntry
 from .appliance import (
     MODEL_BOV950,
+    MODELS,
     OVEN_MODES,
     CookSettings,
     CookState,
@@ -138,7 +139,13 @@ class CookTimeNumber(BrevilleSettingNumber):
         appliance = self.appliance
         status = appliance.status
         if status.active:
-            if status.state is CookState.COOKING and status.time_remaining_s is not None:
+            # Where a running cook can be changed, a new time replaces what's
+            # left, so show that. Otherwise show the cook's length.
+            if (
+                MODELS[appliance.model].can_edit_cook
+                and status.state is CookState.COOKING
+                and status.time_remaining_s is not None
+            ):
                 return round(status.time_remaining_s / 60)
             if status.cook_time_s is not None:
                 return round(status.cook_time_s / 60)

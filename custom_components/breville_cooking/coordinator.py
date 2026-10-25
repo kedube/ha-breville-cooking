@@ -31,6 +31,7 @@ from .api import (
     parse_message,
 )
 from .appliance import (
+    FINISH_WAIT_MODELS,
     MODELS,
     ApplianceStatus,
     CookSettings,
@@ -38,6 +39,7 @@ from .appliance import (
     build_edit,
     build_finish_wait,
     build_manual_steps,
+    build_next_step,
     default_settings,
     firmware_for,
     parse_status,
@@ -264,12 +266,32 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         )
 
     async def async_finish_wait(self, appliance: Appliance) -> None:
+        """The app's on-screen button: food in, or food out."""
         self._ensure_control_allowed(appliance)
+        if appliance.model in FINISH_WAIT_MODELS:
+            await self._call(
+                self.client.finish_wait(
+                    appliance.serial,
+                    appliance.model,
+                    build_finish_wait(appliance.model, appliance.state),
+                )
+            )
+            return
+        try:
+            step = build_next_step(appliance.state)
+        except ValueError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="edit_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
         await self._call(
-            self.client.finish_wait(
+            self.client.send_step(
                 appliance.serial,
                 appliance.model,
-                build_finish_wait(appliance.model, appliance.state),
+                firmware_for(appliance.model, appliance.state),
+                step.recipe_id,
+                step.step_index,
             )
         )
 
@@ -281,6 +303,10 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         duration_s: int | None = None,
     ) -> None:
         self._ensure_control_allowed(appliance)
+        if not MODELS[appliance.model].can_edit_cook:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="stop_cook_first"
+            )
         try:
             edit = build_edit(
                 appliance.model, appliance.state, appliance.status,

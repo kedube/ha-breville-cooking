@@ -15,11 +15,13 @@ from custom_components.breville_cooking.appliance import (
     OVEN_MODES,
     CookSettings,
     CookState,
+    NextStep,
     StateTracker,
     build_bov950_steps,
     build_edit,
     build_finish_wait,
     build_manual_steps,
+    build_next_step,
     default_settings,
     duration_limits,
     oven_mode_defaults,
@@ -228,6 +230,14 @@ class TestRealOven:
         body = build_finish_wait(MODEL_BOV950, {**shadow, "recipe": recipe})
         assert (body["stageIndex"], body["stepIndex"], body["phaseIndex"]) == (1, 2, 1)
         assert build_finish_wait(MODEL_CSJ100, {"cookId": "x"}) == {}
+
+    def test_next_step_after_preheating(self) -> None:
+        shadow = {**REAL_OVEN_PREHEATING, "state": "virtualButtonPress", "currentStepState": "done"}
+        assert build_next_step(shadow) == NextStep("manual_x", 1)
+        recipe = {"id": "manual_y", "stp": 2}
+        assert build_next_step({**shadow, "recipe": recipe}) == NextStep("manual_y", 3)
+        with pytest.raises(ValueError):
+            build_next_step(REAL_OVEN_IDLE)
 
     def test_timer_starts_itself_by_default(self) -> None:
         assert default_settings(MODEL_BOV950).auto_start_timer
