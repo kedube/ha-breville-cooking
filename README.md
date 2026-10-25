@@ -10,14 +10,16 @@
 
 Control your Breville+ Cooking appliances from Home Assistant: start and stop
 cooks, change the temperature and timer, and get notified when the water is
-ready or the food is done. It uses the same Breville cloud as the Breville+
-Cooking app.
+ready or the food is done. A sidebar panel draws each appliance as it is, with
+every control and a set of presets. It uses the same Breville cloud as the
+Breville+ Cooking app.
 
 This integration is unofficial, and isn't affiliated with or endorsed by
 Breville.
 
 [Appliances](#supported-appliances) · [Installation](#installation) ·
-[Setup](#setup) · [Entities](#entities) · [Actions](#actions) ·
+[Setup](#setup) · [Sidebar panel](#sidebar-panel) · [Entities](#entities) ·
+[Actions](#actions) ·
 [Examples](#examples) · [Safety](#safety) ·
 [Limitations](#known-limitations) · [Testing](#testing-an-appliance) ·
 [Troubleshooting](#troubleshooting) · [Development](#development)
@@ -28,7 +30,7 @@ Breville.
 |---|---|---|
 | ChefSteps Joule Sous Vide | CSJ100 | Tested on a real appliance |
 | Joule Turbo Sous Vide | BSV600 | Built from the app's code; untested |
-| Joule Oven Air Fryer Pro | BOV950 | Tried on a real oven: starting and stopping bake and air fry, their timers, and the end of a cook. Continue after preheating and other modes are untested |
+| Joule Oven Air Fryer Pro | BOV950 | Tested on a real oven: bake and air fry, from start to the end of the cook, with Continue after preheating. Other modes haven't been tried yet |
 
 Untested appliances are monitor-only until you allow control in the
 integration's [options](#options). If you have one, please
@@ -112,22 +114,82 @@ another account, add the integration again.
 
 ### Options
 
-**Allow control of untested appliances** is off at first. The Joule Turbo and
-the Joule Oven haven't been tried on real appliances, so until you turn it on,
-Home Assistant only shows their status and can stop a cook, not start or
-change one. To turn it on, go to **Settings → Devices & services → Breville+
+**Allow control of untested appliances** is off at first. The Joule Turbo
+hasn't been tried on a real appliance, so until you turn it on, Home Assistant
+only shows its status and can stop a cook, not start or change one. To turn it on, go to **Settings → Devices & services → Breville+
 Cooking → Configure**, and then
 [report how it goes](#testing-an-appliance).
 
+**Show in the sidebar** is on at first. It adds the
+[sidebar panel](#sidebar-panel) for everyone who uses Home Assistant. Turn it
+off to hide this account's appliances from the panel; the panel leaves the
+sidebar once no account shows it.
+
+## Sidebar panel
+
+**Breville+** in the sidebar (**Sage** when every account is a Sage one) shows
+each appliance as a drawing of the real thing, with what it's doing:
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-overview-dark.png">
+  <img src="docs/images/panel-overview-light.png" width="800" alt="The Breville+ panel open from Home Assistant's sidebar, showing the Kitchen: the oven baking croissants at 175 degrees with 26 minutes left, its window glowing and its display lit, and the Joule cooking a bagged steak in its water bath at 56 degrees with 1 hour 27 minutes left">
+</picture></p>
+
+- **Overview:** a card for each appliance, grouped by area, with its status,
+  the oven's display, and the temperature and time left. With only one
+  appliance, the panel opens straight to it.
+- **Drawings:** drawn from measurements of Breville's own photos. The Joule
+  is clipped in a clear container of water, which circulates while it cooks,
+  steams as it warms, and holds the bag of food once it's in. The oven shows
+  its display as the real one does, the rack at the mode's position with the
+  mode's accessory, the food while it cooks, the elements glowing as the mode
+  uses them, and the fan turning. Its finish, brushed or black stainless, comes
+  from the appliance.
+- **Full view:** everything the entities offer: Start, Stop and Continue, the
+  settings for the next cook, a chart of the cook's temperature against its
+  target, and the appliance's details.
+- **Presets:** built-in sous vide and oven presets fill in the settings; Start
+  starts the cook. Administrators can save the current settings as a preset,
+  and rename, update or delete saved ones. Saved presets are shared with
+  everyone.
+- **Screen readers:** every drawing is described in words, changes such as
+  "ready for food" and "done" are announced, and everything works from the
+  keyboard.
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-oven-dark.png">
+  <img src="docs/images/panel-oven-light.png" width="800" alt="The oven's full view: the drawing of the oven baking, with its time left; the oven's temperature, mode, door and a Stop button; and the settings for the next cook, locked while this one runs">
+</picture></p>
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-joule-dark.png">
+  <img src="docs/images/panel-joule-light.png" width="800" alt="The Joule's full view: the drawing of the Joule in its water bath, the last of the built-in presets with a button to save the current settings as one, and a chart of the water heating to 56 degrees and holding there since the food went in">
+</picture></p>
+
+Anyone who can use Home Assistant can use the panel, as they can the
+appliance's entities, and the same rules apply: untested appliances are
+monitor-only unless you allow control, a running oven cook can't be changed,
+and Stop always works.
+
+The built-in presets follow published guidance: USDA FSIS, the FDA Food Code
+and Douglas Baldwin's sous vide tables. Their times assume pieces about 1 in
+(25 mm) thick; thicker ones need longer. Sous vide cooks some foods below the
+USDA's minimum temperatures and holds them there long enough instead, and not
+every preset pasteurizes: the steak presets don't, and the salmon, white fish
+and shrimp presets need seafood that's safe to eat raw. Presets are a starting
+point. Follow a trusted cooking guide, especially when cooking for anyone who
+is pregnant, very young, older or has a weakened immune system.
+
 ## Languages
 
-The integration's screens, entity names and messages follow your Home
-Assistant language. They're available in English, German, French, Dutch,
-Spanish, Simplified Chinese, Italian, Polish and Swedish. Oven modes use the
-Breville+ app's names where those are accurate. If you're a native speaker
-and something reads wrong, please edit
-`custom_components/breville_cooking/translations/<language>.json` and open a
-pull request.
+The integration's screens, entity names and messages, and the sidebar panel,
+follow your Home Assistant language. They're available in English, German,
+French, Dutch, Spanish, Simplified Chinese, Italian, Polish and Swedish. Oven
+modes use the Breville+ app's names where those are accurate. The printing in
+the panel's drawings, such as the oven's display, stays as it is on the
+appliance. If you're a native speaker and something reads wrong, please edit
+`custom_components/breville_cooking/translations/<language>.json` (or, for the
+sidebar panel, `frontend/src/i18n/<language>.json`) and open a pull request.
 
 ## Entities
 
@@ -142,6 +204,7 @@ Every appliance has:
 | Cooking | Binary sensor | On from the start of a cook to its end, including preheating and waiting for the food. |
 | Problem | Binary sensor | On while the appliance reports an error. |
 | Error | Sensor (diagnostic) | The error, such as Low water level or Tipped over. |
+| Preheat | Sensor | How far preheating has got, in percent, from the temperature, as the Breville+ app works it out. An oven also ends preheating after 5 minutes, so once Home Assistant has seen it start, its Preheat counts that time too. Unknown when the appliance isn't preheating. |
 | Target temperature | Number | The temperature for the next cook, or of the running one. |
 | Cook time | Number | The timer in minutes, for the next cook or the running one. For sous vide, 0 holds the temperature until you stop it. While an oven preheats it's unknown, because the oven only reports its timer once preheating is done. |
 | Cook | Switch | Turn on to start a cook with these settings, and off to stop it. |
@@ -156,6 +219,7 @@ The oven also has:
 | Convection | Select | The fan: Off, On or Super, as the mode allows. |
 | Level | Select | Broil intensity (Low, Medium or High) or slow-cook level (Low or High). These modes use it instead of Target temperature. |
 | Keep warm | Switch (configuration) | Keeps the food warm when the cook finishes. |
+| Frozen food | Switch (configuration) | Cooks from frozen, for the modes that offer it: Pizza, Cookies and Reheat. Choosing a mode sets it to that mode's default. |
 | Door | Binary sensor | Whether the door is open. |
 | Active mode | Sensor | The mode of the running cook, including cooks started on the oven. |
 
@@ -187,6 +251,14 @@ shows Press the button on the appliance.
 If the oven's timer doesn't start by itself, press **Continue** once Status
 shows Ready for food. Pressing Start on the oven at that point cancels the
 cook.
+
+The oven decides for itself when preheating is done: when its sensor is
+within 15 °C (27 °F) of the temperature it holds it at, or after 5 minutes,
+whichever comes first. From a cold start that's usually the 5 minutes, so
+Status can show Ready for food while Temperature still reads low. The
+Breville+ app counts preheating as done at the same moment. **Preheat** counts
+the 5 minutes too, so it nears 100% as preheating ends, unless Home Assistant
+started partway through; then it goes by the temperature alone.
 
 When the oven's timer runs out, the oven turns itself off. Status changes to
 Done and **Cooking** turns off, but the cook stays open on the oven, so
@@ -302,9 +374,9 @@ unavailable, and you can then delete them from their device page.
 
 ## Known limitations
 
-- The BSV600 hasn't been tried on a real appliance, and the BOV950 only in
-  part, so they're monitor-only unless you allow control in the
-  [options](#options).
+- The BSV600 hasn't been tried on a real appliance, so it's monitor-only
+  unless you allow control in the [options](#options). On the BOV950, only
+  bake and air fry have been tried.
 - A running oven cook's temperature and time can't be changed. The Breville+
   app can't change them either.
 - Nobody has tried a Sage account yet.
@@ -321,16 +393,17 @@ unavailable, and you can then delete them from their device page.
 
 ## Testing an appliance
 
-If you have a Joule Turbo, a Joule Oven Air Fryer Pro or a Sage account, you
-can help get it supported:
+If you have a Joule Turbo or a Sage account, or can try the Joule Oven Air
+Fryer Pro's other modes, you can help get them supported:
 
 1. Set up the integration, and check that Status, Temperature and the timer
    match the appliance.
-2. To try control too, turn on **Allow control of untested appliances** in
-   the [options](#options). Stay near the appliance, and only start a sous
+2. To try control of a Joule Turbo too, turn on **Allow control of untested
+   appliances** in the [options](#options). Stay near the appliance, and only start a sous
    vide when it's in water.
 3. Try a short cook. Start it with **Cook**, change **Target temperature**
-   and **Cook time**, press **Continue** when asked, then turn **Cook** off.
+   and **Cook time** (on a sous vide; an oven cook can't be changed), press
+   **Continue** when asked, then turn **Cook** off.
 4. Straight away, download the [diagnostics](#troubleshooting) and attach
    them to an
    [appliance report](https://github.com/kedube/ha-breville-cooking/issues/new?template=appliance_report.yml),
@@ -369,6 +442,25 @@ python3 -m pytest
 python3 -m pip install ruff==0.15.17 && python3 -m ruff check .
 ```
 
+The sidebar panel is in `frontend/` (Lit and TypeScript, built with esbuild),
+and needs Node.js 22 or newer:
+
+```sh
+cd frontend
+npm ci
+npm run check      # typecheck, tests, and build the bundle
+npm run axe        # accessibility checks, in Chrome
+npm run keyboard   # a keyboard-only run of the full view, in Chrome
+npm run demo       # the panel and every drawing, to open in a browser
+```
+
+The integration serves the built bundle from
+`custom_components/breville_cooking/frontend/`, which is committed, so rebuild
+it with every change to the panel. The panel's tests share
+`tests/fixtures/panel/` with the Python tests, which write those fixtures from
+the real integration: run `UPDATE_PANEL_FIXTURES=1 python3 -m pytest
+tests/test_panel_fixtures.py` after changing what the panel is sent.
+
 CI runs these, plus Home Assistant's hassfest and the HACS checks, on every
 pull request and push to `main`.
 
@@ -398,6 +490,17 @@ python3 scripts/breville_probe.py start --temp 55 --minutes 30 --confirm-water
 The protocol was recovered from the Breville+ Cooking Android app (1.96.0).
 [docs/api.md](docs/api.md) documents the cloud API, and marks which parts were
 verified on a Joule.
+
+## Thanks
+
+Thanks to [CityDweller](https://github.com/CityDweller) for testing and
+debugging the Joule Oven Air Fryer Pro support on a real oven, one release
+after another ([#1](https://github.com/kedube/ha-breville-cooking/issues/1)).
+CityDweller's careful notes and diagnostics from every step tracked down the
+oven's cook timer, Continue after preheating, the end of a cook and when
+preheating ends, caught the oven's serial number leaking into diagnostics, and
+showed that a running oven cook can't be changed. The oven is marked as tested
+because of that work.
 
 ## Trademarks
 

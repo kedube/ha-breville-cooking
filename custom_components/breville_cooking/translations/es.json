@@ -43,10 +43,12 @@
       "init": {
         "description": "Algunos aparatos aún no se han probado con esta integración, así que Home Assistant solo los supervisa. Detener una cocción siempre funciona.",
         "data": {
-          "allow_untested_control": "Permitir controlar aparatos no probados"
+          "allow_untested_control": "Permitir controlar aparatos no probados",
+          "show_sidebar_panel": "Mostrar en la barra lateral"
         },
         "data_description": {
-          "allow_untested_control": "También permite iniciar y cambiar cocciones en aparatos no probados. Actívalo solo cuando puedas vigilar el aparato, y cuéntanos cómo va."
+          "allow_untested_control": "También permite iniciar y cambiar cocciones en aparatos no probados. Actívalo solo cuando puedas vigilar el aparato, y cuéntanos cómo va.",
+          "show_sidebar_panel": "Muestra los aparatos de esta cuenta en un panel de la barra lateral, con un dibujo en directo de cada uno y sus controles. Lo ven todos los que usan Home Assistant."
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "current_temperature": {
         "name": "Temperatura"
+      },
+      "preheat": {
+        "name": "Precalentamiento"
       },
       "time_remaining": {
         "name": "Tiempo restante"
@@ -195,6 +200,9 @@
       },
       "keep_warm": {
         "name": "Mantener caliente"
+      },
+      "frozen": {
+        "name": "Alimentos congelados"
       }
     },
     "button": {

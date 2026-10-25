@@ -42,6 +42,9 @@
           "none": "mdi:check-circle-outline"
         }
       },
+      "preheat": {
+        "default": "mdi:thermometer-chevron-up"
+      },
       "status": {
         "default": "mdi:pot-steam-outline",
         "state": {
@@ -70,6 +73,9 @@
         "state": {
           "on": "mdi:pot-steam"
         }
+      },
+      "frozen": {
+        "default": "mdi:snowflake"
       },
       "keep_warm": {
         "default": "mdi:heat-wave"

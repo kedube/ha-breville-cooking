@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import EntityCategory, UnitOfTemperature, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
@@ -47,6 +47,11 @@ SENSORS: tuple[BrevilleSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
         value_fn=lambda a: a.status.current_temp_c,
+    ),
+    BrevilleSensorDescription(
+        key="preheat",
+        native_unit_of_measurement=PERCENTAGE,
+        value_fn=lambda a: a.status.preheat_pct,
     ),
     BrevilleSensorDescription(
         key="time_remaining",

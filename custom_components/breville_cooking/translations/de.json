@@ -43,10 +43,12 @@
       "init": {
         "description": "Einige Geräte wurden mit dieser Integration noch nicht getestet, daher überwacht Home Assistant sie nur. Einen Garvorgang zu stoppen funktioniert immer.",
         "data": {
-          "allow_untested_control": "Steuerung ungetesteter Geräte erlauben"
+          "allow_untested_control": "Steuerung ungetesteter Geräte erlauben",
+          "show_sidebar_panel": "In der Seitenleiste anzeigen"
         },
         "data_description": {
-          "allow_untested_control": "Garvorgänge auch auf ungetesteten Geräten starten und ändern. Schalte das nur ein, wenn du das Gerät im Blick behalten kannst, und berichte bitte, wie es läuft."
+          "allow_untested_control": "Garvorgänge auch auf ungetesteten Geräten starten und ändern. Schalte das nur ein, wenn du das Gerät im Blick behalten kannst, und berichte bitte, wie es läuft.",
+          "show_sidebar_panel": "Zeigt die Geräte dieses Kontos in einem Panel in der Seitenleiste, mit einer Live-Zeichnung jedes Geräts und seiner Bedienung. Alle, die Home Assistant nutzen, sehen es."
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "current_temperature": {
         "name": "Temperatur"
+      },
+      "preheat": {
+        "name": "Vorheizen"
       },
       "time_remaining": {
         "name": "Verbleibende Zeit"
@@ -195,6 +200,9 @@
       },
       "keep_warm": {
         "name": "Warmhalten"
+      },
+      "frozen": {
+        "name": "Tiefkühlware"
       }
     },
     "button": {

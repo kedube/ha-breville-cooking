@@ -43,10 +43,12 @@
       "init": {
         "description": "Some appliances haven't been tested with this integration yet, so Home Assistant only monitors them. Stopping a cook always works.",
         "data": {
-          "allow_untested_control": "Allow control of untested appliances"
+          "allow_untested_control": "Allow control of untested appliances",
+          "show_sidebar_panel": "Show in the sidebar"
         },
         "data_description": {
-          "allow_untested_control": "Also start and change cooks on untested appliances. Only turn this on when you can keep an eye on the appliance, and please report how it goes."
+          "allow_untested_control": "Also start and change cooks on untested appliances. Only turn this on when you can keep an eye on the appliance, and please report how it goes.",
+          "show_sidebar_panel": "Show this account's appliances in a sidebar panel, with a live drawing of each and its controls. Everyone who uses Home Assistant sees it."
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "current_temperature": {
         "name": "Temperature"
+      },
+      "preheat": {
+        "name": "Preheat"
       },
       "time_remaining": {
         "name": "Time remaining"
@@ -195,6 +200,9 @@
       },
       "keep_warm": {
         "name": "Keep warm"
+      },
+      "frozen": {
+        "name": "Frozen food"
       }
     },
     "button": {

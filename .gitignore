@@ -4,3 +4,6 @@ __pycache__/
 # Probe captures contain appliance serial numbers and account details.
 probe-output/
 .coverage
+# The sidebar panel's toolchain; the built bundle is committed.
+node_modules/
+frontend/dist/

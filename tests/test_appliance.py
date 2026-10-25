@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 
 import pytest
@@ -409,3 +409,69 @@ def test_parse_message_shapes() -> None:
                             "data": {"reported": {"a": 1}}})
     assert update == StateUpdate("s", "changeReport", {"a": 1}, False, 12)
     assert parse_message({"serialNumber": "s", "messageType": "pong", "data": {}}) is None
+
+
+class TestPreheat:
+    """The app's getPreheatProgress, for the Preheat sensor and the panel's ring."""
+
+    def test_joule(self) -> None:
+        status = parse_status(MODEL_CSJ100, csj_point(1, "ACTIVE", 1, 0, bathTemp=42)["data"])
+        assert (status.state, status.preheat_pct) == (CookState.PREHEATING, 75)
+        cooking = parse_status(MODEL_CSJ100, csj_point(1, "ACTIVE", 3, 60)["data"])
+        assert cooking.preheat_pct is None
+
+    def test_oven_counts_toward_a_little_below_its_sensor_target(self) -> None:
+        # At 150 °C and below, 90% of the sensor target: 39 of 79.2.
+        status = parse_status(MODEL_BOV950, REAL_OVEN_PREHEATING)
+        assert status.preheat_pct == 49
+        assert status.sensor_target_c == 88
+        # Above it, 15 °C below: 120 of 146.
+        hot = {**REAL_OVEN_PREHEATING, "heater": {"state": 1, "temp_sp_m": 161, "cur_temp": 120}}
+        assert parse_status(MODEL_BOV950, hot).preheat_pct == 82
+        done = {**REAL_OVEN_PREHEATING, "heater": {"state": 1, "temp_sp_m": 161, "cur_temp": 158}}
+        assert parse_status(MODEL_BOV950, done).preheat_pct == 100
+
+    def test_only_while_preheating(self) -> None:
+        heating = {**REAL_OVEN_PREHEATING, "heater": {**REAL_OVEN_PREHEATING["heater"], "state": 2}}
+        status = parse_status(MODEL_BOV950, heating)
+        assert (status.state, status.preheat_pct, status.sensor_target_c) == (CookState.COOKING, None, 88)
+        idle = parse_status(MODEL_BOV950, REAL_OVEN_IDLE)
+        assert (idle.preheat_pct, idle.sensor_target_c) == (None, None)
+
+    def test_joule_turbo(self) -> None:
+        shadow = {"state": "active", "heater": {"state": 1, "cur_temp": 28.5, "temp_sp": 57}}
+        assert parse_status(MODEL_BSV600, shadow).preheat_pct == 50
+        # A sous vide counts its temperature alone, however long it has heated.
+        idle = parse_status(MODEL_BSV600, {"state": "idle"}, NOW)
+        later = parse_status(MODEL_BSV600, shadow, NOW + timedelta(minutes=10), previous=idle)
+        assert (later.preheat_pct, later.preheat_started) == (50, None)
+
+    def test_oven_counts_its_time_limit_too(self) -> None:
+        """The oven ends preheating after 5 minutes at the latest (issue #1), so once Home
+        Assistant has seen preheating start, it's as far along as the further of its
+        temperature and its time."""
+        cold = {**REAL_OVEN_PREHEATING, "heater": {"state": 1, "temp_sp_m": 161, "cur_temp": 21}}
+
+        def reading(celsius: float) -> dict:
+            return {**cold, "heater": {**cold["heater"], "cur_temp": celsius}}
+
+        waiting = parse_status(MODEL_BOV950, REAL_OVEN_WAITING, NOW)
+        start = parse_status(MODEL_BOV950, cold, NOW, previous=waiting)
+        assert (start.preheat_started, start.preheat_pct) == (NOW, 14)  # 21 of 146 °C
+        # Halfway through the 5 minutes, ahead of its 41% by temperature.
+        half = parse_status(MODEL_BOV950, reading(60), NOW + timedelta(seconds=150), previous=start)
+        assert (half.preheat_started, half.preheat_pct) == (NOW, 50)
+        last = parse_status(MODEL_BOV950, reading(93), NOW + timedelta(seconds=290), previous=half)
+        assert last.preheat_pct == 97
+        # Near its target sooner, the temperature leads.
+        near = parse_status(MODEL_BOV950, reading(140), NOW + timedelta(seconds=60), previous=start)
+        assert near.preheat_pct == 96
+        # Already preheating at the first report seen: the temperature alone.
+        joined = parse_status(MODEL_BOV950, reading(60), NOW + timedelta(seconds=150), previous=None)
+        assert (joined.preheat_started, joined.preheat_pct) == (None, 41)
+        unknown = parse_status(MODEL_BOV950, reading(70), NOW + timedelta(seconds=160), previous=joined)
+        assert (unknown.preheat_started, unknown.preheat_pct) == (None, 48)
+        # Once it's ready, the start is forgotten.
+        heated = {**cold, "state": "virtualButtonPress", "currentStepState": "done", "heater": {**cold["heater"], "state": 2}}
+        ready = parse_status(MODEL_BOV950, heated, NOW + timedelta(seconds=300), previous=last)
+        assert (ready.state, ready.preheat_pct, ready.preheat_started) == (CookState.READY, None, None)

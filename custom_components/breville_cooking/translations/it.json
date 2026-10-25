@@ -43,10 +43,12 @@
       "init": {
         "description": "Alcuni elettrodomestici non sono ancora stati testati con questa integrazione, quindi Home Assistant si limita a monitorarli. Interrompere una cottura funziona sempre.",
         "data": {
-          "allow_untested_control": "Consenti il controllo degli elettrodomestici non testati"
+          "allow_untested_control": "Consenti il controllo degli elettrodomestici non testati",
+          "show_sidebar_panel": "Mostra nella barra laterale"
         },
         "data_description": {
-          "allow_untested_control": "Consente anche di avviare e modificare le cotture sugli elettrodomestici non testati. Attivalo solo quando puoi tenere d'occhio l'elettrodomestico, e facci sapere come va."
+          "allow_untested_control": "Consente anche di avviare e modificare le cotture sugli elettrodomestici non testati. Attivalo solo quando puoi tenere d'occhio l'elettrodomestico, e facci sapere come va.",
+          "show_sidebar_panel": "Mostra gli elettrodomestici di questo account in un pannello della barra laterale, con un disegno in tempo reale di ciascuno e i suoi comandi. Lo vedono tutti gli utenti di Home Assistant."
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "current_temperature": {
         "name": "Temperatura"
+      },
+      "preheat": {
+        "name": "Preriscaldamento"
       },
       "time_remaining": {
         "name": "Tempo rimanente"
@@ -195,6 +200,9 @@
       },
       "keep_warm": {
         "name": "Mantenimento in caldo"
+      },
+      "frozen": {
+        "name": "Cibi surgelati"
       }
     },
     "button": {

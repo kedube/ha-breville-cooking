@@ -37,9 +37,11 @@ from .const import (
     BRAND_SAGE,
     CONF_ALLOW_UNTESTED_CONTROL,
     CONF_BRAND,
+    CONF_SHOW_SIDEBAR_PANEL,
     DOMAIN,
     SAGE_COUNTRIES,
 )
+from .coordinator import sidebar_panel_enabled
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +53,7 @@ BRAND_SELECTOR = SelectSelector(
     )
 )
 REAUTH_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): str})
-OPTIONS_SCHEMA = vol.Schema({vol.Required(CONF_ALLOW_UNTESTED_CONTROL, default=False): bool})
+
 
 
 class BrevilleConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -150,16 +152,29 @@ class BrevilleConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class BrevilleOptionsFlow(OptionsFlow):
-    """Whether appliances nobody has tested yet may be controlled."""
+    """Whether untested appliances may be controlled, and the sidebar panel."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            options = {
+                CONF_ALLOW_UNTESTED_CONTROL: user_input.get(CONF_ALLOW_UNTESTED_CONTROL, False)
+            }
+            # Saved only when off, so the panel stays on by default.
+            if user_input.get(CONF_SHOW_SIDEBAR_PANEL, sidebar_panel_enabled(self.config_entry)) is False:
+                options[CONF_SHOW_SIDEBAR_PANEL] = False
+            return self.async_create_entry(data=options)
+        # Left out, the panel option keeps its value.
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_ALLOW_UNTESTED_CONTROL, default=False): bool,
+                vol.Required(
+                    CONF_SHOW_SIDEBAR_PANEL, default=sidebar_panel_enabled(self.config_entry)
+                ): bool,
+            }
+        )
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(
-                OPTIONS_SCHEMA, self.config_entry.options
-            ),
+            data_schema=self.add_suggested_values_to_schema(schema, self.config_entry.options),
         )

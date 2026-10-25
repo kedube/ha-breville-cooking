@@ -22,6 +22,10 @@ from homeassistant.core import HomeAssistant
 from . import BrevilleConfigEntry
 from .api import BrevilleAuthError, decode_jwt_claims
 from .appliance import MODELS
+from .coordinator import sidebar_panel_enabled
+from .frontend import panel_module_url, registered_title
+from .panel_api import async_panel_diagnostics
+from .panel_spec import detect_finish
 
 REDACTED = "**REDACTED**"
 
@@ -127,10 +131,18 @@ async def async_get_config_entry_diagnostics(
         "options": redact(dict(entry.options)),
         "websocket_connected": coordinator.connected,
         "recent_requests": redact(coordinator.client.recent_requests),
+        "panel": {
+            "enabled": sidebar_panel_enabled(entry),
+            "registered": panel_module_url(hass) is not None,
+            "title": registered_title(hass),
+            "module_url": panel_module_url(hass),
+            **await async_panel_diagnostics(hass),
+        },
         "appliances": [
             {
                 "model": appliance.model,
                 "item_number": appliance.item_number,
+                "finish": detect_finish(appliance.model, appliance.item_number, appliance.serial),
                 "tested": MODELS[appliance.model].tested,
                 "status": redact(asdict(appliance.status)),
                 "settings": asdict(appliance.settings),

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import aiohttp
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
@@ -47,6 +48,8 @@ from .appliance import (
 from .const import (
     APPLIANCE_REFRESH_INTERVAL,
     CONF_ALLOW_UNTESTED_CONTROL,
+    CONF_SHOW_SIDEBAR_PANEL,
+    DEFAULT_SHOW_SIDEBAR_PANEL,
     DOMAIN,
     MESSAGE_LOG_SIZE,
     WS_RECONNECT_FACTOR,
@@ -59,6 +62,11 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 _T = TypeVar("_T")
+
+
+def sidebar_panel_enabled(entry: ConfigEntry) -> bool:
+    """The sidebar panel shows the entry's appliances unless it's turned off."""
+    return entry.options.get(CONF_SHOW_SIDEBAR_PANEL, DEFAULT_SHOW_SIDEBAR_PANEL) is not False
 
 
 @dataclass
@@ -206,7 +214,7 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
             return
         appliance.state = self._tracker.state(update.serial)
         firmware = appliance.status.firmware
-        appliance.status = parse_status(appliance.model, appliance.state)
+        appliance.status = parse_status(appliance.model, appliance.state, previous=appliance.status)
         if appliance.status.firmware and appliance.status.firmware != firmware:
             self._update_sw_version(appliance)
         self.async_update_listeners()

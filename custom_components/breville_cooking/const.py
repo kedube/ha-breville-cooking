@@ -25,6 +25,10 @@ SAGE_COUNTRIES = frozenset(
 
 # Option: allow starting and changing cooks on models nobody has tested.
 CONF_ALLOW_UNTESTED_CONTROL = "allow_untested_control"
+# Option: list the account's appliances in the sidebar panel. Saved only when
+# off, so a missing key means on.
+CONF_SHOW_SIDEBAR_PANEL = "show_sidebar_panel"
+DEFAULT_SHOW_SIDEBAR_PANEL = True
 
 # Recent websocket messages and cloud requests kept for diagnostics.
 MESSAGE_LOG_SIZE = 50

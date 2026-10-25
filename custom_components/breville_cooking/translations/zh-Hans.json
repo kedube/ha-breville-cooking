@@ -43,10 +43,12 @@
       "init": {
         "description": "部分设备尚未使用此集成测试过，因此 Home Assistant 只会监控它们。停止烹饪始终可用。",
         "data": {
-          "allow_untested_control": "允许控制未经测试的设备"
+          "allow_untested_control": "允许控制未经测试的设备",
+          "show_sidebar_panel": "在侧边栏中显示"
         },
         "data_description": {
-          "allow_untested_control": "也可以在未经测试的设备上开始和更改烹饪。请仅在你能照看设备时开启，并告诉我们使用情况。"
+          "allow_untested_control": "也可以在未经测试的设备上开始和更改烹饪。请仅在你能照看设备时开启，并告诉我们使用情况。",
+          "show_sidebar_panel": "在侧边栏面板中显示此账户的设备，附带每台设备的实时图示及其控件。所有使用 Home Assistant 的人都能看到。"
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "current_temperature": {
         "name": "温度"
+      },
+      "preheat": {
+        "name": "预热"
       },
       "time_remaining": {
         "name": "剩余时间"
@@ -195,6 +200,9 @@
       },
       "keep_warm": {
         "name": "保温"
+      },
+      "frozen": {
+        "name": "冷冻食品"
       }
     },
     "button": {

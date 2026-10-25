@@ -43,10 +43,12 @@
       "init": {
         "description": "Vissa apparater har inte testats med den här integrationen än, så Home Assistant övervakar dem bara. Att stoppa en tillagning fungerar alltid.",
         "data": {
-          "allow_untested_control": "Tillåt styrning av otestade apparater"
+          "allow_untested_control": "Tillåt styrning av otestade apparater",
+          "show_sidebar_panel": "Visa i sidofältet"
         },
         "data_description": {
-          "allow_untested_control": "Starta och ändra tillagningar även på otestade apparater. Slå bara på detta när du kan hålla ett öga på apparaten, och berätta gärna hur det går."
+          "allow_untested_control": "Starta och ändra tillagningar även på otestade apparater. Slå bara på detta när du kan hålla ett öga på apparaten, och berätta gärna hur det går.",
+          "show_sidebar_panel": "Visar kontots apparater i en panel i sidofältet, med en levande ritning av varje apparat och dess reglage. Alla som använder Home Assistant ser den."
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "current_temperature": {
         "name": "Temperatur"
+      },
+      "preheat": {
+        "name": "Förvärmning"
       },
       "time_remaining": {
         "name": "Återstående tid"
@@ -195,6 +200,9 @@
       },
       "keep_warm": {
         "name": "Varmhållning"
+      },
+      "frozen": {
+        "name": "Fryst mat"
       }
     },
     "button": {

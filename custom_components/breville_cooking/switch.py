@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.const import EntityCategory, UnitOfTemperature
+from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -44,6 +44,7 @@ async def async_setup_entry(
         ]
         if appliance.model == MODEL_BOV950:
             entities.append(KeepWarmSwitch(coordinator, appliance, "keep_warm"))
+            entities.append(FrozenSwitch(coordinator, appliance, "frozen"))
         return entities
 
     async_add_appliance_entities(entry, async_add_entities, entities_for)
@@ -133,8 +134,12 @@ class BrevilleOptionSwitch(BrevilleSwitch, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if (last := await self.async_get_last_state()) is not None:
-            setattr(self.appliance.settings, self._field, last.state == "on")
+        # Not from "unavailable": that says nothing about the setting.
+        if (last := await self.async_get_last_state()) is not None and last.state in (
+            STATE_ON,
+            STATE_OFF,
+        ):
+            setattr(self.appliance.settings, self._field, last.state == STATE_ON)
 
 
 class AutoStartTimerSwitch(BrevilleOptionSwitch):
@@ -147,3 +152,17 @@ class KeepWarmSwitch(BrevilleOptionSwitch):
     """Keep food warm when an oven cook finishes."""
 
     _field = "keep_warm"
+
+
+class FrozenSwitch(BrevilleOptionSwitch):
+    """Cook from frozen, for the oven modes that offer it (pizza, cookies, reheat).
+
+    Choosing a mode resets it to that mode's default.
+    """
+
+    _field = "frozen"
+
+    @property
+    def available(self) -> bool:
+        mode = OVEN_MODES.get(self.appliance.settings.mode or "")
+        return super().available and mode is not None and mode.frozen_default is not None

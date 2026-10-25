@@ -28,6 +28,19 @@ from .const import (
     SERVICE_START_COOK,
 )
 from .coordinator import BrevilleCoordinator
+from .frontend import (
+    async_add_entry_panel,
+    async_forget_entry_panel,
+    async_remove_entry_panel,
+    async_setup_frontend,
+)
+from .panel_api import (
+    async_panel_entry_removed,
+    async_panel_entry_set_up,
+    async_panel_entry_unloaded,
+    async_remove_presets,
+    async_setup_panel_api,
+)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -63,6 +76,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schema=START_COOK_SCHEMA,
         func="async_start_cook_service",
     )
+    async_setup_frontend(hass)
+    async_setup_panel_api(hass)
     return True
 
 
@@ -85,12 +100,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: BrevilleConfigEntry) -> 
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     coordinator.async_start_websocket()
+    # The sidebar panel, best effort: every entity works without it.
+    await async_add_entry_panel(hass, entry)
+    async_panel_entry_set_up(hass, entry)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: BrevilleConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
+    # Usually to reload: the panel keeps the appliances, unavailable, until they're back.
+    async_panel_entry_unloaded(hass, entry)
+    await async_remove_entry_panel(hass, entry)
+    return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: BrevilleConfigEntry) -> None:
+    """Let the panel forget a removed entry, and the presets go with the last one."""
+    async_panel_entry_removed(hass, entry.entry_id)
+    await async_forget_entry_panel(hass, entry.entry_id)
+    if not any(
+        other.entry_id != entry.entry_id for other in hass.config_entries.async_entries(DOMAIN)
+    ):
+        await async_remove_presets(hass)
 
 
 async def async_remove_config_entry_device(

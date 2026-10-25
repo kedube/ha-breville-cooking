@@ -174,7 +174,7 @@ Unix time in milliseconds. A successful command returns an empty body, except
 | [`send-csj-message`](#change-a-joule-cook) | Change a running Joule cook | Verified | Not used |
 | [`update-cook`](#change-a-cook-on-newer-appliances) | Change a running cook | Not used | From the app for the Joule Turbo; the app doesn't offer it for the oven, which ignored it |
 | [`finish-wait`](#food-in-food-out) | Food is in, or food is out | Verified | From the app for the Joule Turbo; the app doesn't use it for the oven, which ignored it |
-| [`send-step`](#go-on-to-the-next-step) | Go on to the next step of the running recipe | Not used | From the app; how the app continues an oven cook |
+| [`send-step`](#go-on-to-the-next-step) | Go on to the next step of the running recipe | Not used | Verified on the oven, which the app continues this way; from the app for the Joule Turbo |
 | [`stop-recipe`](#stop-a-cook) | Stop the cook | Verified | Verified on the oven; from the app for the Joule Turbo |
 
 Several commands include the appliance's firmware, copied from its
@@ -449,8 +449,10 @@ step instead.
 
 ### Go on to the next step
 
-**From the app; not tried yet.** For a Joule Oven waiting after preheating, the
-app's button (`NextRecipeStep`) sends `send-step` for the next cook step:
+**Verified** on a Joule Oven. For an oven waiting after preheating, the app's
+button (`NextRecipeStep`) sends `send-step` for the next cook step. The oven
+answered 204 No Content, went on to the cook step within a few seconds, and
+started its timer:
 
 ```json
 {
@@ -633,8 +635,12 @@ than the setpoint: 161 °C for a 175 °C (350 °F) bake, and 191 °C for 205 °C
 The app's preheat progress bar is `cur_temp / (temp_sp_m − 15)`, or
 `cur_temp / (0.9 × temp_sp_m)` at 150 °C and below. But the app counts
 preheating as done once `heater.state` is 2 or 3, which the oven decides for
-itself: once at a `cur_temp` of 91 °C on a 175 °C bake, and once at 105 °C,
-about a minute before the oven beeped. While idle, the oven stops updating
+itself. It looks like `cur_temp` reaching `temp_sp_m − 15`, or 5 minutes,
+whichever comes first: three 175 °C bakes from a cold oven each ended
+preheating 300 seconds after it began, at a `cur_temp` of 91, 95 and 106 °C
+(once about a minute before the oven beeped); a 205 °C air fry from a warm
+oven ended after 254 seconds, as `cur_temp` reached 176 °C; and from an oven
+already hot, within seconds. While idle, the oven stops updating
 `cur_temp` after a while: it still reported 59 °C six hours after a cook.
 
 `virtualButtonPress` came in two cases:

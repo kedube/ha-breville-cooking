@@ -43,10 +43,12 @@
       "init": {
         "description": "Niektóre urządzenia nie zostały jeszcze przetestowane z tą integracją, więc Home Assistant tylko je monitoruje. Zatrzymanie gotowania działa zawsze.",
         "data": {
-          "allow_untested_control": "Zezwalaj na sterowanie nieprzetestowanymi urządzeniami"
+          "allow_untested_control": "Zezwalaj na sterowanie nieprzetestowanymi urządzeniami",
+          "show_sidebar_panel": "Pokaż na pasku bocznym"
         },
         "data_description": {
-          "allow_untested_control": "Pozwala także uruchamiać i zmieniać gotowanie na nieprzetestowanych urządzeniach. Włącz tę opcję tylko wtedy, gdy możesz mieć urządzenie na oku, i daj nam znać, jak poszło."
+          "allow_untested_control": "Pozwala także uruchamiać i zmieniać gotowanie na nieprzetestowanych urządzeniach. Włącz tę opcję tylko wtedy, gdy możesz mieć urządzenie na oku, i daj nam znać, jak poszło.",
+          "show_sidebar_panel": "Pokazuje urządzenia tego konta w panelu na pasku bocznym, z rysunkiem każdego z nich na żywo i jego sterowaniem. Widzi go każdy, kto korzysta z Home Assistant."
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "current_temperature": {
         "name": "Temperatura"
+      },
+      "preheat": {
+        "name": "Podgrzewanie wstępne"
       },
       "time_remaining": {
         "name": "Pozostały czas"
@@ -195,6 +200,9 @@
       },
       "keep_warm": {
         "name": "Podtrzymywanie temperatury"
+      },
+      "frozen": {
+        "name": "Mrożonki"
       }
     },
     "button": {

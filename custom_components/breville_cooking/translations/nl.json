@@ -43,10 +43,12 @@
       "init": {
         "description": "Sommige apparaten zijn nog niet met deze integratie getest, dus Home Assistant houdt ze alleen in de gaten. Een kookproces stoppen werkt altijd.",
         "data": {
-          "allow_untested_control": "Bediening van ongeteste apparaten toestaan"
+          "allow_untested_control": "Bediening van ongeteste apparaten toestaan",
+          "show_sidebar_panel": "Tonen in de zijbalk"
         },
         "data_description": {
-          "allow_untested_control": "Ook kookprocessen starten en wijzigen op ongeteste apparaten. Zet dit alleen aan als je het apparaat in de gaten kunt houden, en laat ons weten hoe het gaat."
+          "allow_untested_control": "Ook kookprocessen starten en wijzigen op ongeteste apparaten. Zet dit alleen aan als je het apparaat in de gaten kunt houden, en laat ons weten hoe het gaat.",
+          "show_sidebar_panel": "Toont de apparaten van dit account in een paneel in de zijbalk, met een live tekening van elk apparaat en de bediening ervan. Iedereen die Home Assistant gebruikt, ziet het."
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "current_temperature": {
         "name": "Temperatuur"
+      },
+      "preheat": {
+        "name": "Voorverwarmen"
       },
       "time_remaining": {
         "name": "Resterende tijd"
@@ -195,6 +200,9 @@
       },
       "keep_warm": {
         "name": "Warmhouden"
+      },
+      "frozen": {
+        "name": "Diepvriesproducten"
       }
     },
     "button": {

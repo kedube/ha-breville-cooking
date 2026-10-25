@@ -1,7 +1,8 @@
 """Per-model knowledge: reading appliance state and building cook requests.
 
 Joule (CSJ100) behaviour was verified against a real appliance. BSV600 and
-BOV950 support follows the Breville+ app (1.96.0) code and is unverified.
+BOV950 support follows the Breville+ app (1.96.0) code; the BOV950's has since
+been tried on a real oven (issue #1), the BSV600's is unverified.
 No Home Assistant imports.
 """
 
@@ -65,7 +66,7 @@ MODELS: dict[str, ModelInfo] = {
     ),
     MODEL_BOV950: ModelInfo(
         MODEL_BOV950, "Joule Oven Air Fryer Pro", "Breville", Kind.OVEN,
-        27.0, 250.0, 72 * HOUR, can_edit_cook=False,
+        27.0, 250.0, 72 * HOUR, tested=True, can_edit_cook=False,
     ),
 }
 # The app's doesApplianceSupportFinishWaitCommand. For other models (the
@@ -325,6 +326,14 @@ class ApplianceStatus:
     # The cook ended and the appliance turned its heater off; the cook stays
     # open on the appliance until it's stopped.
     finished: bool = False
+    # How far preheating has got, in percent; None unless preheating.
+    preheat_pct: int | None = None
+    # When an oven was seen to start preheating; None when preheating was
+    # already under way at the first report Home Assistant saw.
+    preheat_started: datetime | None = None
+    # The temperature an oven holds its own sensor at while it cooks
+    # (heater.temp_sp_m), below the setpoint.
+    sensor_target_c: float | None = None
 
     @property
     def cooking(self) -> bool:
@@ -341,6 +350,28 @@ def _num(value: Any) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
+def preheat_progress(current: float | None, target: float | None) -> int | None:
+    """Percent of the way to `target`, as the app's getPreheatProgress."""
+    if current is None or not target or target <= 0:
+        return None
+    return max(0, min(100, round(100 * current / target)))
+
+
+# An oven ends preheating after 5 minutes at the latest, whatever its sensor
+# reads: three 175 °C bakes from cold each ended at 300 s, at 91-106 °C, while
+# a warm air fry got within 15 °C of its sensor target first (issue #1).
+OVEN_PREHEAT_LIMIT_S = 300
+
+
+def oven_preheat_target(sensor_target_c: float) -> float:
+    """What an oven's preheat counts toward: a little below its sensor target.
+
+    The app's getPreheatProgress: 15 °C below it, or 90% of it at 150 °C and
+    below.
+    """
+    return 0.9 * sensor_target_c if sensor_target_c <= 150 else sensor_target_c - 15
+
+
 def _ends_at(now: datetime, remaining: int | None) -> datetime | None:
     if not remaining:
         return None
@@ -349,11 +380,17 @@ def _ends_at(now: datetime, remaining: int | None) -> datetime | None:
     return (end + timedelta(seconds=30)).replace(second=0, microsecond=0)
 
 
-def parse_status(model: str, state: dict[str, Any], now: datetime | None = None) -> ApplianceStatus:
+def parse_status(
+    model: str,
+    state: dict[str, Any],
+    now: datetime | None = None,
+    previous: ApplianceStatus | None = None,
+) -> ApplianceStatus:
+    """The appliance's status from its state; `previous` is the status of the report before."""
     now = now or datetime.now(UTC)
     if model == MODEL_CSJ100:
         return _parse_csj(state, now)
-    return _parse_task_engine(model, state, now)
+    return _parse_task_engine(model, state, now, previous)
 
 
 def _parse_csj(s: dict[str, Any], now: datetime) -> ApplianceStatus:
@@ -382,6 +419,8 @@ def _parse_csj(s: dict[str, Any], now: datetime) -> ApplianceStatus:
     if status.state is CookState.COOKING:
         status.time_remaining_s = int(s.get("timeRemaining") or 0)
         status.ends_at = _ends_at(now, status.time_remaining_s)
+    if status.state is CookState.PREHEATING:
+        status.preheat_pct = preheat_progress(status.current_temp_c, status.target_temp_c)
     if s.get("errorState"):
         reason = s.get("eventReason")
         status.error = CSJ_EVENT_REASONS.get(reason, "other")
@@ -421,7 +460,22 @@ def _shadow_index(s: dict[str, Any], key: str, short: str) -> Any:
     return s.get(key)
 
 
-def _parse_task_engine(model: str, s: dict[str, Any], now: datetime) -> ApplianceStatus:
+def _preheat_started(previous: ApplianceStatus | None, now: datetime) -> datetime | None:
+    """When preheating began: kept while it lasts, or now when the report before
+    showed the oven idle or waiting for Start. Unknown when it was already under
+    way at the first report seen."""
+    if previous is None:
+        return None
+    if previous.state is CookState.PREHEATING:
+        return previous.preheat_started
+    if previous.state in (CookState.IDLE, CookState.WAITING_FOR_BUTTON):
+        return now
+    return None
+
+
+def _parse_task_engine(
+    model: str, s: dict[str, Any], now: datetime, previous: ApplianceStatus | None = None
+) -> ApplianceStatus:
     raw_state = str(s.get("state") or "offline")
     heaters = s.get("heaters")
     heater = heaters[0] if isinstance(heaters, list) and heaters else s.get("heater")
@@ -492,6 +546,22 @@ def _parse_task_engine(model: str, s: dict[str, Any], now: datetime) -> Applianc
 
     if status.active:
         status.target_temp_c = _target_temp_c(s, heater, legacy)
+        if MODELS[model].kind is Kind.OVEN:
+            status.sensor_target_c = _num(heater.get("temp_sp_m"))
+        if status.state is CookState.PREHEATING:
+            target = status.target_temp_c
+            if MODELS[model].kind is Kind.OVEN:
+                held = status.sensor_target_c or target
+                target = oven_preheat_target(held) if held else None
+            status.preheat_pct = preheat_progress(status.current_temp_c, target)
+            if MODELS[model].kind is Kind.OVEN:
+                # The oven ends preheating when it's near its target or after
+                # its time limit, so it's as far along as the further of the two.
+                status.preheat_started = _preheat_started(previous, now)
+                if status.preheat_started is not None:
+                    elapsed = (now - status.preheat_started).total_seconds()
+                    timed = max(0, min(100, round(100 * elapsed / OVEN_PREHEAT_LIMIT_S)))
+                    status.preheat_pct = max(status.preheat_pct or 0, timed)
         if timer and timer.get("down_from_n") not in (None, SKIP_TIMER_VALUE):
             status.cook_time_s = int(timer["down_from_n"])
             if timer.get("state") in (TimerState.RUNNING, TimerState.PAUSED):

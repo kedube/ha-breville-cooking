@@ -1,6 +1,7 @@
 {
   "domain": "breville_cooking",
   "name": "Breville+ Cooking",
+  "after_dependencies": ["frontend", "http", "panel_custom"],
   "codeowners": ["@kedube"],
   "config_flow": true,
   "documentation": "https://github.com/kedube/ha-breville-cooking",

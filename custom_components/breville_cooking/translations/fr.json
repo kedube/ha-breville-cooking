@@ -43,10 +43,12 @@
       "init": {
         "description": "Certains appareils n'ont pas encore été testés avec cette intégration : Home Assistant se contente donc de les surveiller. Il est toujours possible d'arrêter une cuisson.",
         "data": {
-          "allow_untested_control": "Autoriser le contrôle des appareils non testés"
+          "allow_untested_control": "Autoriser le contrôle des appareils non testés",
+          "show_sidebar_panel": "Afficher dans la barre latérale"
         },
         "data_description": {
-          "allow_untested_control": "Permet aussi de lancer et de modifier des cuissons sur les appareils non testés. N'activez cette option que si vous pouvez surveiller l'appareil, et dites-nous comment cela se passe."
+          "allow_untested_control": "Permet aussi de lancer et de modifier des cuissons sur les appareils non testés. N'activez cette option que si vous pouvez surveiller l'appareil, et dites-nous comment cela se passe.",
+          "show_sidebar_panel": "Affiche les appareils de ce compte dans un panneau de la barre latérale, avec un dessin en direct de chacun et ses commandes. Tous les utilisateurs de Home Assistant le voient."
         }
       }
     }
@@ -70,6 +72,9 @@
       },
       "current_temperature": {
         "name": "Température"
+      },
+      "preheat": {
+        "name": "Préchauffage"
       },
       "time_remaining": {
         "name": "Temps restant"
@@ -195,6 +200,9 @@
       },
       "keep_warm": {
         "name": "Maintien au chaud"
+      },
+      "frozen": {
+        "name": "Aliments surgelés"
       }
     },
     "button": {
