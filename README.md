@@ -28,7 +28,7 @@ Breville.
 |---|---|---|
 | ChefSteps Joule Sous Vide | CSJ100 | Tested on a real appliance |
 | Joule Turbo Sous Vide | BSV600 | Built from the app's code; untested |
-| Joule Oven Air Fryer Pro | BOV950 | Starting and stopping a bake tried on a real oven; the rest untested |
+| Joule Oven Air Fryer Pro | BOV950 | Tried on a real oven: starting and stopping bake and air fry, and their timers. Changing a running cook doesn't work yet; the rest untested |
 
 Untested appliances are monitor-only until you allow control in the
 integration's [options](#options). If you have one, please
@@ -136,17 +136,17 @@ Every appliance has:
 | Entity | Type | What it does |
 |---|---|---|
 | Status | Sensor | What the appliance is doing: Idle, Preheating, Ready for food, Cooking, Done, Keeping warm, Press the button on the appliance, Error, Updating or Offline. |
-| Temperature | Sensor | The water or oven temperature. |
+| Temperature | Sensor | The water or oven temperature. Unknown while the oven is idle, since it stops updating it. |
 | Time remaining | Sensor | Time left on the timer. |
 | Cook end | Sensor | When the timer will finish. |
 | Cooking | Binary sensor | On from the start of a cook to its end, including preheating and waiting for the food. |
 | Problem | Binary sensor | On while the appliance reports an error. |
 | Error | Sensor (diagnostic) | The error, such as Low water level or Tipped over. |
 | Target temperature | Number | The temperature for the next cook, or of the running one. |
-| Cook time | Number | The timer in minutes, for the next cook or the running one. For sous vide, 0 holds the temperature until you stop it. |
+| Cook time | Number | The timer in minutes, for the next cook or the running one. For sous vide, 0 holds the temperature until you stop it. While an oven preheats it's unknown, because the oven only reports its timer once preheating is done. |
 | Cook | Switch | Turn on to start a cook with these settings, and off to stop it. |
 | Continue | Button | Tells the appliance the food is in, which starts the timer, or that it's out. Available only while the appliance is waiting for this. |
-| Start timer automatically | Switch (configuration) | Starts the timer as soon as the temperature is reached, instead of waiting for **Continue**. |
+| Start timer automatically | Switch (configuration) | Starts the timer as soon as the temperature is reached, instead of waiting for **Continue**. On at first for the oven, as in the app. |
 
 The oven also has:
 
@@ -182,6 +182,15 @@ keeps to each model's temperature and time limits.
 After a remote start, the oven waits for you to press Start on its panel, just
 as it does when you start a cook from the Breville+ app. Until then, Status
 shows Press the button on the appliance.
+
+When the oven's timer runs out, the oven turns itself off. Status changes to
+Done and **Cooking** turns off, but the cook stays open on the oven, so
+**Cook** stays on. Turn off **Cook** to close it. The app's "a bit more" and
+"keep warm" choices at this point aren't available here.
+
+While it cooks, the oven's Temperature reads lower than its target. The oven
+holds its own sensor below the setpoint: about 320 °F (160 °C) for a 350 °F
+bake.
 
 ## Actions
 
@@ -288,8 +297,11 @@ unavailable, and you can then delete them from their device page.
 
 ## Known limitations
 
-- The BSV600 and BOV950 haven't been tried on real appliances, so they're
-  monitor-only unless you allow control in the [options](#options).
+- The BSV600 hasn't been tried on a real appliance, and the BOV950 only in
+  part, so they're monitor-only unless you allow control in the
+  [options](#options).
+- Changing the temperature or time of a running oven cook doesn't work yet:
+  the oven accepts the change but keeps its settings.
 - Nobody has tried a Sage account yet.
 - Accounts with multi-factor authentication can't log in.
 - The BSV600's Turbo mode isn't offered.

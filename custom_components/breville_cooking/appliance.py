@@ -316,10 +316,19 @@ class ApplianceStatus:
     firmware: str | None = None
     cook_id: str | None = None
     step_index: int = 0
+    # The cook ended and the appliance turned its heater off; the cook stays
+    # open on the appliance until it's stopped.
+    finished: bool = False
 
     @property
     def cooking(self) -> bool:
+        """A cook is open on the appliance, including one that has finished."""
         return self.state in RUNNING_STATES
+
+    @property
+    def active(self) -> bool:
+        """A cook is under way: open, and not finished with the heater off."""
+        return self.cooking and not self.finished
 
 
 def _num(value: Any) -> float | None:
@@ -338,7 +347,7 @@ def parse_status(model: str, state: dict[str, Any], now: datetime | None = None)
     now = now or datetime.now(UTC)
     if model == MODEL_CSJ100:
         return _parse_csj(state, now)
-    return _parse_task_engine(state, now)
+    return _parse_task_engine(model, state, now)
 
 
 def _parse_csj(s: dict[str, Any], now: datetime) -> ApplianceStatus:
@@ -376,17 +385,37 @@ def _parse_csj(s: dict[str, Any], now: datetime) -> ApplianceStatus:
 
 
 def _main_timer(s: dict[str, Any]) -> dict[str, Any] | None:
+    """The app's getMainTimer: the timer with id 1, else the first one.
+
+    A real BOV950 numbers its only timer 0.
+    """
     timers = s.get("timers")
     if isinstance(timers, list):
         for timer in timers:
             if isinstance(timer, dict) and timer.get("id") == 1:
                 return timer
-        return None
+        return timers[0] if timers and isinstance(timers[0], dict) else None
     timer = s.get("timer")  # older BSV600 firmware
     return timer if isinstance(timer, dict) else None
 
 
-def _parse_task_engine(s: dict[str, Any], now: datetime) -> ApplianceStatus:
+def _timer_ran_out(timer: dict[str, Any] | None, now: datetime) -> bool:
+    if not timer or timer.get("state") != TimerState.RUNNING:
+        return False
+    if timer.get("down_from_n") in (None, SKIP_TIMER_VALUE):
+        return False
+    return _running_remaining(timer, int(timer.get("now") or 0), now) == 0
+
+
+def _shadow_index(s: dict[str, Any], key: str, short: str) -> Any:
+    """getCurrentStage/getCurrentStep: from a shadow recipe object if there is one."""
+    recipe = s.get("recipe")
+    if isinstance(recipe, dict) and recipe.get(short) is not None:
+        return recipe[short]
+    return s.get(key)
+
+
+def _parse_task_engine(model: str, s: dict[str, Any], now: datetime) -> ApplianceStatus:
     raw_state = str(s.get("state") or "offline")
     heaters = s.get("heaters")
     heater = heaters[0] if isinstance(heaters, list) and heaters else s.get("heater")
@@ -402,9 +431,7 @@ def _parse_task_engine(s: dict[str, Any], now: datetime) -> ApplianceStatus:
         cook_id=s.get("cookUUID"),
         mode=TASK_ENGINE_MODES.get(appliance.get("mode")),
     )
-    step = s.get("currentStep")
-    if step is None and isinstance(s.get("recipe"), dict):
-        step = s["recipe"].get("stp")
+    step = _shadow_index(s, "currentStep", "stp")
     status.step_index = step if isinstance(step, int) else 0
 
     door = s.get("door")
@@ -428,12 +455,18 @@ def _parse_task_engine(s: dict[str, Any], now: datetime) -> ApplianceStatus:
     if not status.online:
         return status
     heater_state = heater.get("state")
+    timer = _main_timer(s)
     if raw_state in ("onboarding",) or s.get("onboardingState") in ("notStarted",):
         status.state = CookState.UPDATING
     elif raw_state == "physicalButtonPress":
         status.state = CookState.WAITING_FOR_BUTTON
     elif raw_state == "virtualButtonPress":
-        status.state = CookState.DONE if heater_state == HeaterState.FINISHED else CookState.READY
+        # Waiting for the app: food in after preheating, or the cook is over.
+        # When a BOV950's timer runs out it turns the heater off and clears
+        # the timer, a second after a report that still has the timer.
+        over = heater_state in (HeaterState.OFF, HeaterState.FINISHED) or _timer_ran_out(timer, now)
+        status.state = CookState.DONE if over else CookState.READY
+        status.finished = heater_state == HeaterState.OFF
     elif raw_state == "warming":
         status.state = CookState.KEEPING_WARM
     elif raw_state == "active":
@@ -445,10 +478,14 @@ def _parse_task_engine(s: dict[str, Any], now: datetime) -> ApplianceStatus:
         status.state = CookState.IDLE
     if errors:
         status.state = CookState.ERROR
+        status.finished = False
+    if status.state is CookState.IDLE and MODELS[model].kind is Kind.OVEN:
+        # An idle oven stops updating cur_temp after a while, leaving the last
+        # reading in place for hours (59 °C long after it cooled, issue #1).
+        status.current_temp_c = None
 
-    if status.cooking:
+    if status.active:
         status.target_temp_c = _target_temp_c(s, heater, legacy)
-        timer = _main_timer(s)
         if timer and timer.get("down_from_n") not in (None, SKIP_TIMER_VALUE):
             status.cook_time_s = int(timer["down_from_n"])
             if timer.get("state") in (TimerState.RUNNING, TimerState.PAUSED):
@@ -581,7 +618,10 @@ class CookSettings:
 
 def default_settings(model: str) -> CookSettings:
     if model == MODEL_BOV950:
-        return oven_mode_defaults(OVEN_MODES["bake"])
+        settings = oven_mode_defaults(OVEN_MODES["bake"])
+        # As in the app, the oven starts its timer itself once preheated.
+        settings.auto_start_timer = True
+        return settings
     return CookSettings(temperature_c=60.0, duration_s=None)
 
 
@@ -757,6 +797,27 @@ def build_bov950_steps(settings: CookSettings) -> list[dict[str, Any]]:
             }
         )
     return steps
+
+
+def build_finish_wait(model: str, state: dict[str, Any]) -> dict[str, Any]:
+    """Fields finish-wait adds to {applianceModel, timestamp} (useFinishWaitCommand).
+
+    Newer appliances ignore a bare finish-wait (issue #1): the app also sends
+    where the cook is. The Joule's bare one was verified.
+    """
+    if model == MODEL_CSJ100:
+        return {}
+    body: dict[str, Any] = {
+        "cookUuid": state.get("cookUUID"),
+        "firmware": firmware_for(model, state),
+    }
+    recipe = state.get("recipe")
+    if isinstance(recipe, dict) and recipe.get("phase") is not None:
+        body["phaseIndex"] = recipe["phase"]
+    body["stageIndex"] = _shadow_index(state, "currentStage", "stg")
+    body["stepIndex"] = _shadow_index(state, "currentStep", "stp")
+    body["wait"] = {"user": 2}
+    return body
 
 
 @dataclass(frozen=True)

@@ -277,7 +277,12 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
         await self.client.finish_wait(SERIAL, "CSJ100")
         _, path, _, body = self.cloud.requests[-1]
         self.assertEqual(path, f"/appliance/v1/appliances/{SERIAL}/finish-wait")
+        self.assertEqual(sorted(body), ["applianceModel", "timestamp"])
         self.assertEqual(body["applianceModel"], "CSJ100")
+
+        await self.client.finish_wait(SERIAL, "BOV950", {"cookUuid": "c", "wait": {"user": 2}})
+        _, _, _, body = self.cloud.requests[-1]
+        self.assertEqual(list(body), ["applianceModel", "timestamp", "cookUuid", "wait"])
 
         await self.client.stop_recipe(SERIAL, "CSJ100", firmware=api.csj_firmware(IDLE_STATE))
         _, path, _, body = self.cloud.requests[-1]

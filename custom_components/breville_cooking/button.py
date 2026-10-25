@@ -30,7 +30,10 @@ class ContinueButton(BrevilleEntity, ButtonEntity):
 
     @property
     def available(self) -> bool:
-        return super().available and self.appliance.status.state in WAITING_STATES
+        # Not once an oven has finished and turned off: its next steps are
+        # the app's optional "a bit more" and "keep warm".
+        status = self.appliance.status
+        return super().available and status.state in WAITING_STATES and status.active
 
     async def async_press(self) -> None:
         await self.coordinator.async_finish_wait(self.appliance)

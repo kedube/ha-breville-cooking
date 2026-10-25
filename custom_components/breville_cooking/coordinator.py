@@ -36,6 +36,7 @@ from .appliance import (
     CookSettings,
     StateTracker,
     build_edit,
+    build_finish_wait,
     build_manual_steps,
     default_settings,
     firmware_for,
@@ -264,7 +265,13 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
 
     async def async_finish_wait(self, appliance: Appliance) -> None:
         self._ensure_control_allowed(appliance)
-        await self._call(self.client.finish_wait(appliance.serial, appliance.model))
+        await self._call(
+            self.client.finish_wait(
+                appliance.serial,
+                appliance.model,
+                build_finish_wait(appliance.model, appliance.state),
+            )
+        )
 
     async def async_edit_cook(
         self,

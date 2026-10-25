@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.json import ExtendedJSONEncoder
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.breville_cooking import async_remove_config_entry_device
@@ -253,7 +254,7 @@ async def test_joule_cook_lifecycle(
     assert hass.states.get("sensor.countertop_status").state == "ready"
     assert hass.states.get("switch.countertop_cook").state == STATE_ON
     await call(hass, "button", "press", "button.countertop_continue")
-    client.finish_wait.assert_awaited_once_with(JOULE, "CSJ100")
+    client.finish_wait.assert_awaited_once_with(JOULE, "CSJ100", {})
 
     await push(hass, socket, csj("ACTIVE", 3, timeRemaining=240))
     assert hass.states.get("sensor.countertop_status").state == "cooking"
@@ -342,8 +343,10 @@ async def test_oven_settings_and_start_service(
     serial, model, firmware, steps = client.load_manual_recipe.await_args.args
     assert (serial, model) == (OVEN, "BOV950")
     assert firmware == {"commFirmware": "1.0", "ctrlFirmware": "2.0"}
-    assert [s["stepType"] for s in steps] == ["default", "default", "aBitMore", "keepWarm"]
-    cook = steps[1]["phases"][0]
+    # The timer starts by itself by default, so preheating is part of the cook step.
+    assert [s["stepType"] for s in steps] == ["default", "aBitMore", "keepWarm"]
+    preheat, cook = steps[0]["phases"]
+    assert preheat["seconds"] == 0
     assert (cook["mode"], cook["temperatureCelsius"], cook["seconds"]) == ("roast", 190, 3000)
     # The service doesn't change the entities' own settings.
     assert hass.states.get("select.kitchen_oven_mode").state == "broil"
@@ -360,6 +363,80 @@ async def test_oven_settings_and_start_service(
     client.update_cook.assert_awaited_once_with(
         OVEN, "BOV950", [{"name": "cookSetPoint", "value": 200.0}], uuid="c-9", step=1
     )
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+def real_oven(version: int, **reported: Any) -> dict:
+    """A stateReport shaped like the real BOV950's in issue #1 (set to °F, baking at 350 °F)."""
+    return {
+        "serialNumber": OVEN, "messageType": "stateReport", "version": version,
+        "data": {"reported": {
+            "state": "active", "model": "BOV950", "door": 1, "motor": 1, "errors": [],
+            "cfg": {"temp_unit": 1, "vol": 11}, "timers": [None, None],
+            "firmware": {"commFirmware": "1.10.131", "teFirmware": "2.4.0", "ctrlFirmware": "1.10.21"},
+            "heater": {"state": 2, "temp_sp": 175, "temp_sp_f": 350, "temp_sp_m": 161, "cur_temp": 160},
+            "appliance": {"mode": 3, "rotate_state": 0, "preset": 0, "cook_segment": 0, "frozen": 0},
+            "recipe": "manual_x", "cookUUID": "cook-7", "currentStage": 0, "currentStep": 0,
+            "currentInstruction": 10, "currentStepState": "active", **reported,
+        }},
+    }
+
+
+async def test_real_oven_cook(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """The BOV950 sequence from the issue #1 diagnostics, from preheated to finished."""
+    hass.config_entries.async_update_entry(entry, options={CONF_ALLOW_UNTESTED_CONTROL: True})
+    await push(hass, socket, real_oven(
+        1, state="virtualButtonPress", currentInstruction=6, currentStepState="done",
+    ))
+    assert hass.states.get("sensor.kitchen_oven_status").state == "ready"
+    assert hass.states.get("number.kitchen_oven_cook_time").state == "unknown"
+    await call(hass, "button", "press", "button.kitchen_oven_continue")
+    client.finish_wait.assert_awaited_once_with(OVEN, "BOV950", {
+        "cookUuid": "cook-7",
+        "firmware": {"commFirmware": "1.10.131", "ctrlFirmware": "1.10.21", "teFirmware": "2.4.0"},
+        "stageIndex": 0, "stepIndex": 0, "wait": {"user": 2},
+    })
+
+    # Its only timer has id 0. The door was opened and closed with 339 s left.
+    started = int(dt_util.utcnow().timestamp())
+    timer = {"id": 0, "timestamp": started, "now": 339, "state": 1, "down_from_n": 900, "usage": 6}
+    await push(hass, socket, real_oven(2, timers=[timer, None]))
+    assert hass.states.get("sensor.kitchen_oven_status").state == "cooking"
+    assert 5 <= float(hass.states.get("sensor.kitchen_oven_time_remaining").state) <= 6
+    assert hass.states.get("number.kitchen_oven_cook_time").state == "6"
+    assert hass.states.get("binary_sensor.kitchen_oven_cooking").state == STATE_ON
+
+    # Time's up: a report with the run-out timer, then the heater goes off.
+    timer["timestamp"] = started - 339
+    await push(hass, socket, real_oven(
+        3, state="virtualButtonPress", currentInstruction=14, currentStepState="done",
+        timers=[timer, None],
+    ))
+    assert hass.states.get("sensor.kitchen_oven_status").state == "done"
+    await push(hass, socket, real_oven(
+        4, state="virtualButtonPress", currentInstruction=14, currentStepState="done",
+        heater={"state": 0, "temp_sp": 175, "temp_sp_f": 345, "temp_sp_m": 161, "cur_temp": 160},
+    ))
+    assert hass.states.get("sensor.kitchen_oven_status").state == "done"
+    assert hass.states.get("binary_sensor.kitchen_oven_cooking").state == STATE_OFF
+    assert hass.states.get("button.kitchen_oven_continue").state == STATE_UNAVAILABLE
+    # Not the 345 °F the oven reports once it's off: the next cook's setting.
+    target = hass.states.get("number.kitchen_oven_target_temperature")
+    assert float(target.state) == OVEN_MODES["bake"].temp[0]
+    # The cook stays open until it's turned off.
+    assert hass.states.get("switch.kitchen_oven_cook").state == STATE_ON
+    await call(hass, "switch", "turn_off", "switch.kitchen_oven_cook")
+    client.stop_recipe.assert_awaited_once()
+
+    # Idle, the oven's temperature reading goes stale, so it isn't shown.
+    await push(hass, socket, real_oven(
+        5, state="idle", recipe=None, cookUUID=None, currentStep=None,
+        heater={"state": 0, "temp_sp": 0, "temp_sp_f": 0, "temp_sp_m": 0, "cur_temp": 59},
+    ))
+    assert hass.states.get("sensor.kitchen_oven_temperature").state == "unknown"
+    assert hass.states.get("switch.kitchen_oven_cook").state == STATE_OFF
     await hass.config_entries.async_unload(entry.entry_id)
 
 

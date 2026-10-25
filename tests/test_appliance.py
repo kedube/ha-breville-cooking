@@ -18,7 +18,9 @@ from custom_components.breville_cooking.appliance import (
     StateTracker,
     build_bov950_steps,
     build_edit,
+    build_finish_wait,
     build_manual_steps,
+    default_settings,
     duration_limits,
     oven_mode_defaults,
     parse_status,
@@ -153,8 +155,10 @@ REAL_OVEN_WAITING = {
 class TestRealOven:
     def test_idle(self) -> None:
         status = parse_status(MODEL_BOV950, REAL_OVEN_IDLE)
-        assert (status.state, status.current_temp_c, status.mode) == (CookState.IDLE, 21, "bake")
+        assert (status.state, status.mode) == (CookState.IDLE, "bake")
         assert (status.convection, status.door_open, status.firmware) == ("off", False, "1.10.21")
+        # It stops updating cur_temp while idle, so the reading may be hours old.
+        assert status.current_temp_c is None
 
     def test_waiting_for_start(self) -> None:
         status = parse_status(MODEL_BOV950, REAL_OVEN_WAITING)
@@ -176,6 +180,58 @@ class TestRealOven:
     def test_stopped_is_idle(self) -> None:
         shadow = {**REAL_OVEN_PREHEATING, "state": "stopped"}
         assert parse_status(MODEL_BOV950, shadow).state is CookState.IDLE
+
+    def test_timer_with_id_0(self) -> None:
+        # Paused while the door was open, 339 s left of 900.
+        timer = {"id": 0, "timestamp": 1792885237, "now": 339, "state": 2, "down_from_n": 900, "usage": 6}
+        shadow = {**REAL_OVEN_PREHEATING, "timers": [timer, None], "heater": {"state": 2}}
+        status = parse_status(MODEL_BOV950, shadow, NOW)
+        assert (status.state, status.time_remaining_s, status.cook_time_s) == (CookState.COOKING, 339, 900)
+        assert status.ends_at is None
+
+    def test_ready_after_preheating(self) -> None:
+        shadow = {**REAL_OVEN_PREHEATING, "state": "virtualButtonPress", "currentStepState": "done",
+                  "currentInstruction": 6, "heater": {"state": 2}}
+        status = parse_status(MODEL_BOV950, shadow, NOW)
+        assert status.state is CookState.READY and status.active
+
+    @pytest.mark.parametrize(
+        ("heater", "timer_left", "finished"),
+        [
+            (2, 0, False),  # the first report: the timer has just run out
+            (0, None, True),  # a second later: heater off, timers cleared
+        ],
+    )
+    def test_cook_finished(self, heater: int, timer_left: int | None, finished: bool) -> None:
+        timers = [None, None]
+        if timer_left is not None:
+            sampled = NOW.timestamp() - 600
+            timers[0] = {"id": 0, "timestamp": sampled, "now": 600, "state": 1, "down_from_n": 600}
+        shadow = {**REAL_OVEN_PREHEATING, "state": "virtualButtonPress", "currentStepState": "done",
+                  "currentInstruction": 14, "timers": timers, "heater": {"state": heater}}
+        status = parse_status(MODEL_BOV950, shadow, NOW)
+        assert status.state is CookState.DONE and status.cooking
+        assert (status.finished, status.active) == (finished, not finished)
+        if finished:
+            assert status.target_temp_c is None
+
+    def test_finish_wait_says_where_the_cook_is(self) -> None:
+        shadow = {**REAL_OVEN_PREHEATING, "state": "virtualButtonPress"}
+        assert build_finish_wait(MODEL_BOV950, shadow) == {
+            "cookUuid": "cook-1",
+            "firmware": {"commFirmware": "1.10.131", "ctrlFirmware": "1.10.21", "teFirmware": "2.4.0"},
+            "stageIndex": 0,
+            "stepIndex": 0,
+            "wait": {"user": 2},
+        }
+        recipe = {"id": "r", "stg": 1, "stp": 2, "phase": 1}
+        body = build_finish_wait(MODEL_BOV950, {**shadow, "recipe": recipe})
+        assert (body["stageIndex"], body["stepIndex"], body["phaseIndex"]) == (1, 2, 1)
+        assert build_finish_wait(MODEL_CSJ100, {"cookId": "x"}) == {}
+
+    def test_timer_starts_itself_by_default(self) -> None:
+        assert default_settings(MODEL_BOV950).auto_start_timer
+        assert not default_settings(MODEL_CSJ100).auto_start_timer
 
 
 class TestTaskEngine:

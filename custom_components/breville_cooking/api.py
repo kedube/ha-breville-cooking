@@ -530,12 +530,18 @@ class BrevilleClient:
             "POST", self.appliance_url(serial, "load-manual-recipe"), body
         )
 
-    async def finish_wait(self, serial: str, model: str) -> Any:
-        """Virtual button press: food is in (starts the timer) or food is out."""
+    async def finish_wait(
+        self, serial: str, model: str, extra: dict[str, Any] | None = None
+    ) -> Any:
+        """Virtual button press: food is in (starts the timer) or food is out.
+
+        `extra` is merged in as the app does with Object.assign: newer
+        appliances need the cook's position (appliance.build_finish_wait).
+        """
         return await self.request(
             "POST",
             self.appliance_url(serial, "finish-wait"),
-            {"applianceModel": model, "timestamp": int(time.time() * 1000)},
+            {"applianceModel": model, "timestamp": int(time.time() * 1000), **(extra or {})},
         )
 
     async def update_cook(

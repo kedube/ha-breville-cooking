@@ -31,7 +31,7 @@ BINARY_SENSORS: tuple[BrevilleBinarySensorDescription, ...] = (
     BrevilleBinarySensorDescription(
         key="cooking",
         device_class=BinarySensorDeviceClass.RUNNING,
-        value_fn=lambda a: a.status.cooking,
+        value_fn=lambda a: a.status.active,
     ),
     BrevilleBinarySensorDescription(
         key="door",

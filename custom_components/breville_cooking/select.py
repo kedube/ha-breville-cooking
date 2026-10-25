@@ -56,7 +56,7 @@ class OvenSettingSelect(BrevilleEntity, SelectEntity, RestoreEntity):
         return OVEN_MODES.get(self.appliance.settings.mode or "")
 
     def _ensure_idle(self) -> None:
-        if self.appliance.status.cooking:
+        if self.appliance.status.active:
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="stop_cook_first"
             )
@@ -80,7 +80,7 @@ class OvenModeSelect(OvenSettingSelect):
     @property
     def current_option(self) -> str | None:
         status = self.appliance.status
-        if status.cooking:
+        if status.active:
             return status.mode if status.mode in OVEN_MODES else None
         return self.appliance.settings.mode
 
@@ -107,7 +107,7 @@ class ConvectionSelect(OvenSettingSelect):
     @property
     def current_option(self) -> str | None:
         status = self.appliance.status
-        if status.cooking:
+        if status.active:
             return status.convection
         return self.appliance.settings.convection
 

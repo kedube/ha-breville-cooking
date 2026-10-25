@@ -172,8 +172,8 @@ Unix time in milliseconds. A successful command returns an empty body, except
 |---|---|---|---|
 | [`load-manual-recipe`](#start-a-cook) | Start a cook | Verified | Verified on the oven; from the app for the Joule Turbo |
 | [`send-csj-message`](#change-a-joule-cook) | Change a running Joule cook | Verified | Not used |
-| [`update-cook`](#change-a-cook-on-newer-appliances) | Change a running cook | Not used | From the app |
-| [`finish-wait`](#food-in-food-out) | Food is in, or food is out | Verified | From the app |
+| [`update-cook`](#change-a-cook-on-newer-appliances) | Change a running cook | Not used | From the app; the oven accepted it but didn't change |
+| [`finish-wait`](#food-in-food-out) | Food is in, or food is out | Verified | From the app; the oven ignored the Joule's shorter body |
 | [`stop-recipe`](#stop-a-cook) | Stop the cook | Verified | Verified on the oven; from the app for the Joule Turbo |
 
 Several commands include the appliance's firmware, copied from its
@@ -253,10 +253,12 @@ Temperatures go from 20 to 92 °C.
 
 #### Joule Oven steps
 
-**Verified** on a Joule Oven for a bake; other modes are from the app. The
-cloud accepted all four steps of the bake and returned them with `sound`,
+**Verified** on a Joule Oven for bake and air fry; other modes are from the
+app. The cloud accepted the steps and returned them with `sound`,
 `enableNotification`, `notificationTitle` and `notificationBody` added to each
 phase. The oven then waited for someone to press Start (`physicalButtonPress`).
+With `"defaultAutostart": true`, its timer started by itself after preheating
+and the oven turned off when the timer ran out.
 
 An oven recipe (`"type": "ovenSteps"`) has these steps, in this order:
 
@@ -395,8 +397,14 @@ protocol. To change the temperature or time of the running cook, send a
 ```
 
 - `step` is the reported `currentStep`, and `uuid` is the reported `cookUUID`.
+  The app uses these for a cook it didn't start itself.
 - The update names are `cookSetPoint`, `cookTime` and `autoStartTimer`. The
-  units are assumed to be °C and seconds, but nobody has checked.
+  app sends °C, converted from °F without rounding (375 °F is
+  `190.55555555555554`), and seconds: after an edit it checks the timer's
+  `down_from_n` against the value.
+- On a Joule Oven baking with the timer running, a `cookSetPoint` and a
+  `cookTime` update each returned 200, but the oven kept its setpoint and
+  timer. The bodies matched what the app sends, so why is still unknown.
 
 ### Food in, food out
 
@@ -408,6 +416,28 @@ appliance the food is out.
 ```json
 {"applianceModel": "CSJ100", "timestamp": 1792804189503}
 ```
+
+A Joule Oven that was waiting for the food after preheating answered that body
+with 200 but didn't start its timer. For the Joule Turbo and Joule Oven, the
+app (`useFinishWaitCommand`) adds where the cook is. It skips the request if
+`cookUUID`, `currentStage` or `currentStep` is missing:
+
+```json
+{
+  "applianceModel": "BOV950",
+  "timestamp": 1792884279277,
+  "cookUuid": "…",
+  "firmware": {"commFirmware": "1.10.131", "ctrlFirmware": "1.10.21", "teFirmware": "2.4.0"},
+  "stageIndex": 0,
+  "stepIndex": 0,
+  "wait": {"user": 2}
+}
+```
+
+- `cookUuid`, `stageIndex` and `stepIndex` are the reported `cookUUID`,
+  `currentStage` and `currentStep`. When `recipe` is an object, its `stg` and
+  `stp` come first, and its `phase` is sent as `phaseIndex`.
+- `wait` is always `{"user": 2}`.
 
 ### Stop a cook
 
@@ -543,10 +573,10 @@ parts marked **Oven**; the rest are from the app.
 
 | Field | Meaning |
 |---|---|
-| `state` | **Oven:** `idle`; `physicalButtonPress` (after a remote start, waiting for someone to press Start); `active`; and briefly `stopped` after [`stop-recipe`](#stop-a-cook). From the app: `offline`, `asleep`, `ready`, `busy`, `warming` (keeping warm), `onboarding` and `virtualButtonPress` (waiting for [`finish-wait`](#food-in-food-out)). |
-| `heater` | **Oven:** `cur_temp` and `temp_sp` in °C, `temp_sp_f` in °F, `temp_sp_m` (meaning unknown), and `state`: 0 off, 1 preheating, 2 heating, 3 finished. The app also reads a `heaters` list. |
+| `state` | **Oven:** `idle`; `physicalButtonPress` (after a remote start, waiting for someone to press Start); `active`; `virtualButtonPress` (waiting for the app, see below); and briefly `stopped` after [`stop-recipe`](#stop-a-cook). From the app: `offline`, `asleep`, `ready`, `busy`, `warming` (keeping warm) and `onboarding`. |
+| `heater` | **Oven:** `cur_temp` and `temp_sp` in °C, `temp_sp_f` in °F, `temp_sp_m` (see below), and `state`: 0 off, 1 preheating, 2 heating, 3 finished. The app also reads a `heaters` list. |
 | `temperature` | Older Joule Turbo firmware: `current` and `setpoint`, in °C. |
-| `timers` | **Oven:** `[null, null]` while no timer runs, including during preheat. The one with `id` 1 is the cook timer; see [Timers](#timers). Older Joule Turbo firmware has a single `timer`. |
+| `timers` | **Oven:** `[null, null]` while no timer runs, including during preheat. The app's cook timer is the one with `id` 1, or else the first one; the oven's has `id` 0. See [Timers](#timers). Older Joule Turbo firmware has a single `timer`. |
 | `appliance` | **Oven:** `mode` (a number from the [mode table](#joule-oven-steps)), `frozen`, `rotate_state`, `preset` and `cook_segment`. |
 | `door` | **Oven:** a number, 1 when closed and 0 when open. The app also reads `door.state`. |
 | `motor` | **Oven:** the convection fan as a number: 0 off, 1 on, 2 super. The app also reads `motors[0].state`. |
@@ -565,8 +595,30 @@ of its state. It sent a full `stateReport` every 10 to 20 seconds while
 heating, and no `changeReport` or `applianceDataPoint` messages.
 
 The oven keeps a setpoint in each unit, rounded to its own steps: a cook sent
-as 93 °C reported `temp_sp` 95 and `temp_sp_f` 200. When `cfg.temp_unit` is 1,
-the integration shows the target from `temp_sp_f`.
+as 93 °C reported `temp_sp` 95 and `temp_sp_f` 200, and 205 °C (401 °F)
+reported 400 °F. When `cfg.temp_unit` is 1, the integration shows the target
+from `temp_sp_f`.
+
+`cur_temp` is the oven's own sensor, which it holds near `temp_sp_m` rather
+than the setpoint: 161 °C for a 175 °C (350 °F) bake, and 191 °C for 205 °C.
+The app's preheat progress is `cur_temp / (temp_sp_m − 15)`, or
+`cur_temp / (0.9 × temp_sp_m)` at 150 °C and below. The oven decides for itself
+when preheating is done; once it went ready at a `cur_temp` of 91 °C on a
+175 °C bake. While idle, the oven stops updating `cur_temp` after a while: it
+still reported 59 °C six hours after a cook.
+
+`virtualButtonPress` came in two cases:
+
+- **Waiting for the food** after preheating, when the timer doesn't start by
+  itself: `currentStepState` `done`, `heater.state` 2 and no timer. A
+  [`finish-wait`](#food-in-food-out) should start the timer.
+- **The cook is over:** when the timer ran out, the oven beeped and turned
+  off. The first report still had the timer, with no time left. A second later
+  `heater.state` was 0, the timers were `null`, and `temp_sp_f` was worked out
+  again from `temp_sp` (350 became 345). The cook then stayed open for about
+  10 minutes, until [`stop-recipe`](#stop-a-cook), which made the oven
+  beep once and go idle. In the app, this is when it offers "a bit more" and
+  "keep warm".
 
 Error codes, from the app:
 
@@ -584,19 +636,24 @@ Error codes, from the app:
 **Joule (verified):** `cookTime` is the timer's length. `timeRemaining` is 0
 until the timer starts, then counts down.
 
-**Joule Turbo and Joule Oven (from the app):** each timer has these fields:
+**Joule Turbo and Joule Oven (verified on the oven):** each timer has these
+fields:
 
 | Field | Meaning |
 |---|---|
-| `state` | 0 reset, 1 running, 2 paused. |
-| `down_from_n` | The timer's length, in seconds. 388803 means there's no timer, and the appliance holds until stopped. |
+| `id` | 0 on the oven. The app takes the timer with `id` 1, or else the first one. |
+| `state` | 0 reset, 1 running, 2 paused. The oven paused its timer while the door was open. |
+| `down_from_n` | The timer's length, in seconds. 388803 means there's no timer, and the appliance holds until stopped (from the app). |
 | `now` | Seconds left when the appliance sampled the timer. |
 | `timestamp` | When it sampled it, in Unix seconds. |
+| `usage` | 6 on the oven; meaning unknown. |
 
 A running timer ends at `timestamp + now`. The app works out the time left from
 that, so a late message still gives the right time. A paused timer has `now`
-seconds left. One other project reads `timestamp` as the time the timer
-started, but the app's code doesn't.
+seconds left. The oven only sent new `timestamp` and `now` values when the
+timer started, paused or carried on. Its cook ended at exactly `timestamp +
+now`. One other project reads `timestamp` as the time the timer started, but
+the oven's timers show it's the time `now` was sampled.
 
 ## Limits
 

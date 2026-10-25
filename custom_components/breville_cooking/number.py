@@ -53,7 +53,7 @@ class BrevilleSettingNumber(BrevilleEntity, RestoreNumber):
         appliance = self.appliance
         if appliance.model != MODEL_BOV950:
             return None
-        if appliance.status.cooking and appliance.status.mode in OVEN_MODES:
+        if appliance.status.active and appliance.status.mode in OVEN_MODES:
             return OVEN_MODES[appliance.status.mode]
         return OVEN_MODES.get(appliance.settings.mode or "")
 
@@ -99,13 +99,13 @@ class TargetTemperatureNumber(BrevilleSettingNumber):
     @property
     def native_value(self) -> float | None:
         status = self.appliance.status
-        if status.cooking and status.target_temp_c is not None:
+        if status.active and status.target_temp_c is not None:
             return status.target_temp_c
         return self.appliance.settings.temperature_c
 
     async def async_set_native_value(self, value: float) -> None:
         appliance = self.appliance
-        if appliance.status.cooking:
+        if appliance.status.active:
             await self.coordinator.async_edit_cook(appliance, temperature_c=value)
         else:
             appliance.settings.temperature_c = value
@@ -137,18 +137,20 @@ class CookTimeNumber(BrevilleSettingNumber):
     def native_value(self) -> float | None:
         appliance = self.appliance
         status = appliance.status
-        if status.cooking:
+        if status.active:
             if status.state is CookState.COOKING and status.time_remaining_s is not None:
                 return round(status.time_remaining_s / 60)
             if status.cook_time_s is not None:
                 return round(status.cook_time_s / 60)
-            return 0
+            # Sous vide without a timer holds until stopped. An oven always
+            # has one, but doesn't report it until preheating is done.
+            return None if appliance.model == MODEL_BOV950 else 0
         return round((appliance.settings.duration_s or 0) / 60)
 
     async def async_set_native_value(self, value: float) -> None:
         appliance = self.appliance
         seconds = int(value * 60)
-        if appliance.status.cooking:
+        if appliance.status.active:
             await self.coordinator.async_edit_cook(appliance, duration_s=seconds)
         else:
             appliance.settings.duration_s = seconds or None

@@ -66,7 +66,7 @@ SENSORS: tuple[BrevilleSensorDescription, ...] = (
         device_class=SensorDeviceClass.ENUM,
         options=REPORTED_MODE_OPTIONS,
         models=frozenset({MODEL_BOV950}),
-        value_fn=lambda a: a.status.mode if a.status.cooking else None,
+        value_fn=lambda a: a.status.mode if a.status.active else None,
     ),
     BrevilleSensorDescription(
         key="error",
