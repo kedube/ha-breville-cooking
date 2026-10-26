@@ -447,12 +447,18 @@ def _main_timer(s: dict[str, Any]) -> dict[str, Any] | None:
     return timer if isinstance(timer, dict) else None
 
 
+# The report that a cook is over reached Home Assistant within 2 seconds of the
+# timer's end each time (issue #1), so a clock a second or two behind the
+# oven's would still see time left.
+TIMER_END_SLACK_S = 5
+
+
 def _timer_ran_out(timer: dict[str, Any] | None, now: datetime) -> bool:
     if not timer or timer.get("state") != TimerState.RUNNING:
         return False
     if timer.get("down_from_n") in (None, SKIP_TIMER_VALUE):
         return False
-    return _running_remaining(timer, int(timer.get("now") or 0), now) == 0
+    return _running_remaining(timer, int(timer.get("now") or 0), now) <= TIMER_END_SLACK_S
 
 
 def _shadow_index(s: dict[str, Any], key: str, short: str) -> Any:
@@ -577,20 +583,22 @@ def _parse_task_engine(
                 and previous.preheat_pct is not None
             ):
                 status.preheat_pct = max(status.preheat_pct or 0, previous.preheat_pct)
-        # Keeping warm after a cook, the cook's mode and length are the ones it
-        # had while cooking, when Home Assistant saw it: the mode is keep warm's
-        # now, and the timer keep warm's hour.
+        # Keeping warm after a cook, and in the report that ends keep warm, the
+        # cook's mode and length are the ones it had while cooking, when Home
+        # Assistant saw it: the mode is keep warm's now, and the timer keep
+        # warm's hour.
+        warming = status.state is CookState.KEEPING_WARM or status.mode == "keep_warm"
         seen_cooking = (
-            status.state is CookState.KEEPING_WARM
+            warming
             and previous is not None
-            and previous.state in (CookState.COOKING, CookState.KEEPING_WARM)
             and previous.cook_id == status.cook_id
+            and (previous.state is CookState.COOKING or previous.cook_mode is not None)
         )
         if seen_cooking:
             status.cook_mode = previous.cook_mode or previous.mode
         if timer and timer.get("down_from_n") not in (None, SKIP_TIMER_VALUE):
             status.cook_time_s = int(timer["down_from_n"])
-            if status.state is CookState.KEEPING_WARM:
+            if warming:
                 status.cook_time_s = previous.cook_time_s if seen_cooking else None
             if timer.get("state") in (TimerState.RUNNING, TimerState.PAUSED):
                 remaining = int(timer.get("now") or 0)

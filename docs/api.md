@@ -255,7 +255,8 @@ Temperatures go from 20 to 92 °C.
 #### Joule Oven steps
 
 **Verified** on a Joule Oven for bake, air fry and broil (level 3, High), and
-keep warm after a cook; other modes are from the app. The cloud accepted the steps and returned them with `sound`,
+keep warm after a cook, to the end of its hour; other modes are from the app.
+The cloud accepted the steps and returned them with `sound`,
 `enableNotification`, `notificationTitle` and `notificationBody` added to each
 phase. The oven then waited for someone to press Start (`physicalButtonPress`).
 With `"defaultAutostart": true`, its timer started by itself after preheating
@@ -632,6 +633,8 @@ from `temp_sp_f`.
 
 `cur_temp` is the oven's own sensor, which it holds near `temp_sp_m` rather
 than the setpoint: 161 °C for a 175 °C (350 °F) bake, and 191 °C for 205 °C.
+Keeping warm, with `temp_sp_m` 65, it settled at 52 to 58 °C once it had
+cooled from the cook.
 The app's preheat progress bar is `cur_temp / (temp_sp_m − 15)`, or
 `cur_temp / (0.9 × temp_sp_m)` at 150 °C and below. But the app counts
 preheating as done once `heater.state` is 2 or 3, which the oven decides for
@@ -650,12 +653,15 @@ already hot, within seconds. While idle, the oven stops updating
   goes on with [`send-step`](#go-on-to-the-next-step). Pressing Start on the
   oven at this point cancelled the cook: the oven went idle without a beep.
 - **The cook is over:** when the timer ran out, the oven beeped and turned
-  off. The first report still had the timer, with no time left. A second later
-  `heater.state` was 0, the timers were `null`, and `temp_sp_f` was worked out
-  again from `temp_sp` (350 became 345). The cook then stayed open for about
-  10 minutes, until [`stop-recipe`](#stop-a-cook), which made the oven
-  beep once and go idle. In the app, this is when it offers "a bit more" and
-  "keep warm".
+  off. The first report still had the timer, with no time left; each of the
+  four times, it reached Home Assistant within 2 seconds of the timer's end.
+  A second later `heater.state` was 0, the timers were `null`, and
+  `temp_sp_f` was worked out again from `temp_sp` (350 became 345). The cook
+  then stayed open for about 10 minutes, until [`stop-recipe`](#stop-a-cook),
+  which made the oven beep once and go idle. In the app, this is when it
+  offers "a bit more" and "keep warm". Keep warm's hour ended the same way,
+  with `appliance.mode` still 19 and `currentInstruction` 20 (14 at the end of
+  a cook).
 
 Error codes, from the app:
 
@@ -683,7 +689,7 @@ fields:
 | `down_from_n` | The timer's length, in seconds. 388803 means there's no timer, and the appliance holds until stopped (from the app). |
 | `now` | Seconds left when the appliance sampled the timer. |
 | `timestamp` | When it sampled it, in Unix seconds. |
-| `usage` | 6 on the oven; meaning unknown. |
+| `usage` | On the oven, 6 for a cook's timer and 5 for keep warm's; otherwise unknown. |
 
 A running timer ends at `timestamp + now`. The app works out the time left from
 that, so a late message still gives the right time. A paused timer has `now`

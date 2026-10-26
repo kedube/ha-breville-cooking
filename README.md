@@ -267,14 +267,17 @@ Done and **Cooking** turns off, but the cook stays open on the oven, so
 **Cook** stays on. Turn off **Cook** to close it. The app's "a bit more" and
 "keep warm" choices at this point aren't available here.
 
-With **Keep warm** on, the oven keeps the food warm for up to an hour once the
-timer runs out, at 160 °F (70 °C). Status shows Keeping warm, **Active mode**
+With **Keep warm** on, the oven keeps the food warm for an hour once the timer
+runs out, at 160 °F (70 °C). Status shows Keeping warm, **Active mode**
 keep_warm, and **Time remaining** counts down the hour; **Mode** and **Cook
-time** still show the cook's. Turn off **Cook** to stop keeping warm.
+time** still show the cook's. When the hour is up, the oven turns off and
+Status changes to Done, the same as at the end of a cook. Turn off **Cook** to
+stop keeping warm sooner.
 
 While it cooks, the oven's Temperature reads lower than its target. The oven
 holds its own sensor below the setpoint: about 320 °F (160 °C) for a 350 °F
-bake.
+bake. Keeping warm at 160 °F, once it had cooled from the cook, it settled at
+about 125–136 °F (52–58 °C).
 
 ## Actions
 

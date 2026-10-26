@@ -167,6 +167,17 @@ REAL_OVEN_KEEPING_WARM = {
     "heater": {"state": 2, "temp_sp": 70, "temp_sp_f": 160, "temp_sp_m": 65, "cur_temp": 160},
     "timers": [{"id": 0, "now": 3600, "state": 1, "down_from_n": 3600, "timestamp": int(NOW.timestamp()) - 2}, None],
 }
+# Keep warm's hour runs out the way a cook's timer does (issue #1, 0.09): a report that still
+# has the timer, then the heater off and the timers cleared a second later.
+REAL_OVEN_KEEP_WARM_OVER = {
+    **REAL_OVEN_KEEPING_WARM, "state": "virtualButtonPress", "currentStepState": "done", "currentInstruction": 20,
+    "heater": {"state": 2, "temp_sp": 70, "temp_sp_f": 160, "temp_sp_m": 65, "cur_temp": 58},
+    "timers": [{"id": 0, "now": 3600, "state": 1, "down_from_n": 3600, "timestamp": int(NOW.timestamp()) - 3600}, None],
+}
+REAL_OVEN_KEPT_WARM = {
+    **REAL_OVEN_KEEP_WARM_OVER, "timers": [None, None],
+    "heater": {"state": 0, "temp_sp": 70, "temp_sp_f": 160, "temp_sp_m": 65, "cur_temp": 58},
+}
 # A broil runs at a level: the oven reports its setpoints as 0.
 REAL_OVEN_BROILING = {
     **REAL_OVEN_PREHEATING, "currentInstruction": 10,
@@ -188,10 +199,23 @@ class TestKeepWarmAndBroil:
         assert warm.sensor_target_c == 65
         later = parse_status(MODEL_BOV950, REAL_OVEN_KEEPING_WARM, NOW, previous=warm)
         assert (later.cook_time_s, later.cook_mode) == (300, "bake")
-        # Seen only once it was keeping warm, the cook's length and mode are unknown.
+        # Seen only once it was keeping warm, the cook's length and mode are unknown, and stay so.
         unseen = parse_status(MODEL_BOV950, REAL_OVEN_KEEPING_WARM, NOW)
         assert (unseen.cook_time_s, unseen.cook_mode) == (None, None)
+        still = parse_status(MODEL_BOV950, REAL_OVEN_KEEPING_WARM, NOW, previous=unseen)
+        assert (still.cook_time_s, still.cook_mode) == (None, None)
         assert cooking.cook_mode is None
+
+    def test_keep_warm_runs_out(self) -> None:
+        cooking = parse_status(MODEL_BOV950, REAL_OVEN_COOKING_BAKE, NOW)
+        warm = parse_status(MODEL_BOV950, REAL_OVEN_KEEPING_WARM, NOW, previous=cooking)
+        over = parse_status(MODEL_BOV950, REAL_OVEN_KEEP_WARM_OVER, NOW, previous=warm)
+        assert (over.state, over.finished, over.time_remaining_s) == (CookState.DONE, False, 0)
+        # Still the cook's length and mode, not keep warm's hour.
+        assert (over.mode, over.cook_time_s, over.cook_mode) == ("keep_warm", 300, "bake")
+        off = parse_status(MODEL_BOV950, REAL_OVEN_KEPT_WARM, NOW, previous=over)
+        assert (off.state, off.finished, off.active, off.cooking) == (CookState.DONE, True, False, True)
+        assert (off.cook_time_s, off.cook_mode, off.target_temp_c) == (None, None, None)
 
     def test_a_broil_has_no_setpoint(self) -> None:
         status = parse_status(MODEL_BOV950, REAL_OVEN_BROILING, NOW)
@@ -261,6 +285,15 @@ class TestRealOven:
         assert (status.finished, status.active) == (finished, not finished)
         if finished:
             assert status.target_temp_c is None
+
+    @pytest.mark.parametrize(("left", "state"), [(2, CookState.DONE), (60, CookState.READY)])
+    def test_cook_end_by_a_clock_behind_the_ovens(self, left: int, state: CookState) -> None:
+        # The end report came within 2 s of the timer's end, so a clock a little behind the
+        # oven's still sees a second or two left; with more to go, the oven is waiting for someone.
+        timer = {"id": 0, "timestamp": NOW.timestamp() - 600 + left, "now": 600, "state": 1, "down_from_n": 600}
+        shadow = {**REAL_OVEN_PREHEATING, "state": "virtualButtonPress", "currentStepState": "done",
+                  "currentInstruction": 14, "timers": [timer, None], "heater": {"state": 2}}
+        assert parse_status(MODEL_BOV950, shadow, NOW).state is state
 
     def test_finish_wait_says_where_the_cook_is(self) -> None:
         shadow = {**REAL_OVEN_PREHEATING, "state": "virtualButtonPress"}
