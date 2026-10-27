@@ -7,3 +7,4 @@ probe-output/
 # The sidebar panel's toolchain; the built bundle is committed.
 node_modules/
 frontend/dist/
+.DS_Store
