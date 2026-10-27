@@ -167,11 +167,9 @@
           "warm": "Warmhalten",
           "dehydrate": "Dörren",
           "bottom_bake": "Unterhitze",
-          "gentle_broil": "Knuspriges Heißluftfrittieren",
           "bottom_broil": "Untere Grillfunktion",
           "outer_top_broil": "Äußere Grillfunktion",
-          "middle_top_broil": "Mittlere Obergrillfunktion",
-          "windy_broil": "Umluft-Grillen"
+          "middle_top_broil": "Mittlere Obergrillfunktion"
         }
       },
       "convection": {
@@ -232,11 +230,9 @@
         "warm": "Warmhalten",
         "dehydrate": "Dörren",
         "bottom_bake": "Unterhitze",
-        "gentle_broil": "Knuspriges Heißluftfrittieren",
         "bottom_broil": "Untere Grillfunktion",
         "outer_top_broil": "Äußere Grillfunktion",
-        "middle_top_broil": "Mittlere Obergrillfunktion",
-        "windy_broil": "Umluft-Grillen"
+        "middle_top_broil": "Mittlere Obergrillfunktion"
       }
     },
     "convection": {

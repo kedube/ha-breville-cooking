@@ -167,11 +167,9 @@
           "warm": "Warm",
           "dehydrate": "Dehydrate",
           "bottom_bake": "Bottom bake",
-          "gentle_broil": "Crispier air fry",
           "bottom_broil": "Bottom broil",
           "outer_top_broil": "Outer broil",
-          "middle_top_broil": "Middle top broil",
-          "windy_broil": "Convection broil"
+          "middle_top_broil": "Middle top broil"
         }
       },
       "convection": {
@@ -232,11 +230,9 @@
         "warm": "Warm",
         "dehydrate": "Dehydrate",
         "bottom_bake": "Bottom bake",
-        "gentle_broil": "Crispier air fry",
         "bottom_broil": "Bottom broil",
         "outer_top_broil": "Outer broil",
-        "middle_top_broil": "Middle top broil",
-        "windy_broil": "Convection broil"
+        "middle_top_broil": "Middle top broil"
       }
     },
     "convection": {

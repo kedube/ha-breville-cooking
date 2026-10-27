@@ -167,11 +167,9 @@
           "warm": "Podtrzymywanie temperatury",
           "dehydrate": "Suszenie",
           "bottom_bake": "Pieczenie od dołu",
-          "gentle_broil": "Chrupiące smażenie bez tłuszczu",
           "bottom_broil": "Grill od dołu",
           "outer_top_broil": "Grill zewnętrzny",
-          "middle_top_broil": "Grill środkowy górny",
-          "windy_broil": "Grill z termoobiegiem"
+          "middle_top_broil": "Grill środkowy górny"
         }
       },
       "convection": {
@@ -232,11 +230,9 @@
         "warm": "Podtrzymywanie temperatury",
         "dehydrate": "Suszenie",
         "bottom_bake": "Pieczenie od dołu",
-        "gentle_broil": "Chrupiące smażenie bez tłuszczu",
         "bottom_broil": "Grill od dołu",
         "outer_top_broil": "Grill zewnętrzny",
-        "middle_top_broil": "Grill środkowy górny",
-        "windy_broil": "Grill z termoobiegiem"
+        "middle_top_broil": "Grill środkowy górny"
       }
     },
     "convection": {

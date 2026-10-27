@@ -211,11 +211,9 @@
           "warm",
           "dehydrate",
           "bottom_bake",
-          "gentle_broil",
           "bottom_broil",
           "outer_top_broil",
-          "middle_top_broil",
-          "windy_broil"
+          "middle_top_broil"
         ],
         "friendly_name": "Kitchen Oven Mode"
       },

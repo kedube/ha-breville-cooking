@@ -254,9 +254,9 @@ Temperatures go from 20 to 92 °C.
 
 #### Joule Oven steps
 
-**Verified** on a Joule Oven for bake, air fry and broil (level 3, High), and
-keep warm after a cook, to the end of its hour; other modes are from the app.
-The cloud accepted the steps and returned them with `sound`,
+**Verified** on a Joule Oven: every mode in the table below started as sent;
+bake, air fry and broil (level 3, High) ran to the end, and so did keep warm
+after a cook, to the end of its hour. The cloud accepted the steps and returned them with `sound`,
 `enableNotification`, `notificationTitle` and `notificationBody` added to each
 phase. The oven then waited for someone to press Start (`physicalButtonPress`).
 With `"defaultAutostart": true`, its timer started by itself after preheating
@@ -321,8 +321,10 @@ Baking at 180 °C for 30 minutes gives these steps:
 ]
 ```
 
-These are the modes that can be started remotely. `appliance.mode` is the
-number the oven reports while it's in that mode.
+These are the modes that can be started remotely. Each one was tried on a
+Joule Oven, along with Frozen food on a pizza, convection off and super, broil
+levels 1 and 2, and slow cook level 1. `appliance.mode` is the number the oven
+reports while it's in that mode.
 
 | Mode | `appliance.mode` | Temperature (°C) | Time | Preheat | Rack | Convection | Keep warm |
 |---|---|---|---|---|---|---|---|
@@ -338,18 +340,23 @@ number the oven reports while it's in that mode.
 | `warm` | 5 | 45–120, default 70 | default 1 h, max by temperature | no | – | off/on/super (default on) | no |
 | `dehydrate` | 12 | 30–80, default 52 | default 12 h, max 72 h | no | 3 | off/on/super (default super) | no |
 | `bottomBake` | 13 | 50–250, default 165 | default 30 min, max by temperature | yes | 6 | off/on/super (default on) | yes |
-| `gentleBroil` | 17 | 50–250, default 165 | default 30 min, max by temperature | yes | 6 | off/on/super (default on) | yes |
 | `bottomBroil` | 14 | level 1–3, default 3 | default 10 min, max 20 min | no | 1 | off | yes |
 | `outerTopBroil` | 15 | level 1–3, default 3 | default 10 min, max 20 min | no | 1 | off | yes |
 | `middleTopBroil` | 16 | level 1–3, default 3 | default 10 min, max 20 min | no | 1 | off | yes |
-| `windyBroil` | 18 | level 1–3, default 3 | default 10 min, max 20 min | no | 1 | off | yes |
 
 "Max by temperature" means up to 4 hours at 200 °C and above, 8 hours from
 150 °C, 12 hours from 100 °C, and 72 hours below that.
 
 Appliances report some other `appliance.mode` values for modes that can only
-be started on the appliance itself. The oven reports 0 toast, 1 bagel, 19 keep
-warm and 26 crispy reheat. The Joule Turbo reports 23 sous vide and 24 turbo.
+be started on the appliance itself. The oven reports 0 toast (seen for a toast
+started on the oven), 1 bagel, 19 keep warm and 26 crispy reheat. The Joule
+Turbo reports 23 sous vide and 24 turbo.
+
+The app also lists `gentleBroil` (Crispier Air Fry, 17), which it sets up
+like `bake`, and `windyBroil` (Convection Broil, 18), set up like `broil`. A
+Joule Oven accepted either one and waited for Start, but pressing Start sent it
+back to `idle`: for a moment with `appliance.mode` 17 or 18, then 3. So the
+integration doesn't offer them.
 
 ### Change a Joule cook
 
@@ -474,7 +481,9 @@ started its timer:
 ### Stop a cook
 
 **Verified** on a Joule and a Joule Oven. The oven answered 204 No Content and
-went to `stopped`, then `idle`, within a few seconds.
+went to `stopped`, then `idle`, within a few seconds. A cook started on the
+oven's own panel stopped too: a toast went straight to `idle`, and a bake
+reported `active` once more with `heater.state` 0 first.
 
 ```json
 {
@@ -609,7 +618,7 @@ parts marked **Oven**; the rest are from the app.
 | `heater` | **Oven:** `cur_temp` and `temp_sp` in °C, `temp_sp_f` in °F, `temp_sp_m` (see below), and `state`: 0 off, 1 preheating, 2 heating, 3 finished. A broil, which runs at a level, reports the three setpoints as 0, and doesn't preheat. The app also reads a `heaters` list. |
 | `temperature` | Older Joule Turbo firmware: `current` and `setpoint`, in °C. |
 | `timers` | **Oven:** `[null, null]` while no timer runs, including during preheat. The app's cook timer is the one with `id` 1, or else the first one; the oven's has `id` 0. See [Timers](#timers). Older Joule Turbo firmware has a single `timer`. |
-| `appliance` | **Oven:** `mode` (a number from the [mode table](#joule-oven-steps)), `frozen`, `rotate_state`, `preset` and `cook_segment`. |
+| `appliance` | **Oven:** `mode` (a number from the [mode table](#joule-oven-steps)), `frozen` (1 for a frozen pizza), `rotate_state`, `preset` and `cook_segment`. A broil or slow cook reports its level as `preset`, 1 to 3 as sent, in six cooks. Other modes started remotely set it to 0; a bake started on the oven kept the last cook's, and a toast set 3. |
 | `door` | **Oven:** a number, 1 when closed and 0 when open. The app also reads `door.state`. |
 | `motor` | **Oven:** the convection fan as a number: 0 off, 1 on, 2 super. The app also reads `motors[0].state`. |
 | `cfg` | **Oven:** settings, including `temp_unit` (1 on an oven set to °F) and `vol`. |
@@ -625,6 +634,12 @@ parts marked **Oven**; the rest are from the app.
 While it waits for Start, the oven leaves `heater`, `motor` and `appliance` out
 of its state. It sent a full `stateReport` every 10 to 20 seconds while
 heating, and no `changeReport` or `applianceDataPoint` messages.
+
+A cook started on the oven's own panel has a `cookUUID`, but no `recipe`,
+`currentStage`, `currentStep`, `currentInstruction` or `currentStepState`. Its
+timer is there from the start: a bake preheating had a reset timer (`state` 0)
+for its 960 seconds, and a toast's timer ran from the first report.
+[`stop-recipe`](#stop-a-cook) stops it too.
 
 The oven keeps a setpoint in each unit, rounded to its own steps: a cook sent
 as 93 °C reported `temp_sp` 95 and `temp_sp_f` 200, and 205 °C (401 °F)

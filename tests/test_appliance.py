@@ -178,10 +178,10 @@ REAL_OVEN_KEPT_WARM = {
     **REAL_OVEN_KEEP_WARM_OVER, "timers": [None, None],
     "heater": {"state": 0, "temp_sp": 70, "temp_sp_f": 160, "temp_sp_m": 65, "cur_temp": 58},
 }
-# A broil runs at a level: the oven reports its setpoints as 0.
+# A broil runs at a level: the oven reports its setpoints as 0, and the level as the preset.
 REAL_OVEN_BROILING = {
     **REAL_OVEN_PREHEATING, "currentInstruction": 10,
-    "appliance": {"mode": 2, "rotate_state": 0, "preset": 0, "cook_segment": 0, "frozen": 0},
+    "appliance": {"mode": 2, "rotate_state": 0, "preset": 3, "cook_segment": 0, "frozen": 0},
     "heater": {"state": 2, "temp_sp": 0, "temp_sp_f": 0, "temp_sp_m": 0, "cur_temp": 22}, "motor": 0,
     "timers": [{"id": 0, "now": 180, "state": 1, "down_from_n": 180, "timestamp": int(NOW.timestamp()) - 4}, None],
 }
@@ -222,6 +222,31 @@ class TestKeepWarmAndBroil:
         assert (status.state, status.mode, status.cook_time_s) == (CookState.COOKING, "broil", 180)
         assert (status.target_temp_c, status.sensor_target_c) == (None, None)
 
+    @pytest.mark.parametrize(
+        ("mode", "preset", "level"),
+        [
+            (2, 3, 3),  # broil on High
+            (14, 2, 2),  # bottom broil on Medium (issue #1, 0.10)
+            (11, 1, 1),  # slow cook on Low
+            (3, 3, None),  # a bake, with the preset left over from a broil
+        ],
+    )
+    def test_the_level_is_the_preset(self, mode: int, preset: int, level: int | None) -> None:
+        appliance = {"mode": mode, "rotate_state": 0, "preset": preset, "cook_segment": 0, "frozen": 0}
+        status = parse_status(MODEL_BOV950, {**REAL_OVEN_BROILING, "appliance": appliance}, NOW)
+        assert status.level == level
+        # Keeping warm after the cook, the level stays the cook's.
+        warm = parse_status(MODEL_BOV950, REAL_OVEN_KEEPING_WARM, NOW, previous=status)
+        assert warm.level == level
+
+    def test_modes_the_oven_wont_start_are_only_reported(self) -> None:
+        # The app lists them, but the oven went back to idle at Start (issue #1, 0.10).
+        assert not {"gentle_broil", "windy_broil"} & set(OVEN_MODES)
+        for mode, option in ((17, "gentle_broil"), (18, "windy_broil")):
+            appliance = {"mode": mode, "rotate_state": 0, "preset": 0, "cook_segment": 0, "frozen": 0}
+            status = parse_status(MODEL_BOV950, {**REAL_OVEN_BROILING, "appliance": appliance}, NOW)
+            assert (status.mode, status.level) == (option, None)
+
 
 class TestRealOven:
     def test_idle(self) -> None:
@@ -251,6 +276,15 @@ class TestRealOven:
     def test_stopped_is_idle(self) -> None:
         shadow = {**REAL_OVEN_PREHEATING, "state": "stopped"}
         assert parse_status(MODEL_BOV950, shadow).state is CookState.IDLE
+
+    def test_stopping_with_the_heater_off_is_no_new_phase(self) -> None:
+        # Stopped while preheating a bake started on its panel, the oven reported the cook once
+        # more with the heater off, then went idle (issue #1, 0.10): not preheated and cooking.
+        preheating = parse_status(MODEL_BOV950, REAL_OVEN_PREHEATING, NOW)
+        stopping = {**REAL_OVEN_PREHEATING, "heater": {**REAL_OVEN_PREHEATING["heater"], "state": 0}}
+        assert parse_status(MODEL_BOV950, stopping, NOW, previous=preheating).state is CookState.PREHEATING
+        # With nothing before it to go on, it's a cook.
+        assert parse_status(MODEL_BOV950, stopping, NOW).state is CookState.COOKING
 
     def test_timer_with_id_0(self) -> None:
         # Paused while the door was open, 339 s left of 900.

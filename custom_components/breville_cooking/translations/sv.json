@@ -167,11 +167,9 @@
           "warm": "Varmhållning",
           "dehydrate": "Torkning",
           "bottom_bake": "Undervärme",
-          "gentle_broil": "Krispigare airfry",
           "bottom_broil": "Grill underifrån",
           "outer_top_broil": "Yttre grill",
-          "middle_top_broil": "Övre grill i mitten",
-          "windy_broil": "Konvektionsgrill"
+          "middle_top_broil": "Övre grill i mitten"
         }
       },
       "convection": {
@@ -232,11 +230,9 @@
         "warm": "Varmhållning",
         "dehydrate": "Torkning",
         "bottom_bake": "Undervärme",
-        "gentle_broil": "Krispigare airfry",
         "bottom_broil": "Grill underifrån",
         "outer_top_broil": "Yttre grill",
-        "middle_top_broil": "Övre grill i mitten",
-        "windy_broil": "Konvektionsgrill"
+        "middle_top_broil": "Övre grill i mitten"
       }
     },
     "convection": {

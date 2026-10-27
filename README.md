@@ -30,7 +30,7 @@ Breville.
 |---|---|---|
 | ChefSteps Joule Sous Vide | CSJ100 | Tested on a real appliance |
 | Joule Turbo Sous Vide | BSV600 | Built from the app's code; untested |
-| Joule Oven Air Fryer Pro | BOV950 | Tested on a real oven: bake, air fry and broil, from start to the end of the cook, with Continue after preheating and Keep warm. Other modes haven't been tried yet |
+| Joule Oven Air Fryer Pro | BOV950 | Tested on a real oven: all 15 modes start, and bake, air fry and broil were run to the end, with Continue after preheating and Keep warm. Cooks started on the oven itself show up and can be stopped |
 
 Untested appliances are monitor-only until you allow control in the
 integration's [options](#options). If you have one, please
@@ -215,7 +215,7 @@ The oven also has:
 
 | Entity | Type | What it does |
 |---|---|---|
-| Mode | Select | Bake, Air fry, Roast, Broil, Pizza and 12 other modes. Choosing one resets the other settings to that mode's defaults. |
+| Mode | Select | Bake, Air fry, Roast, Broil, Pizza and 10 other modes. Choosing one resets the other settings to that mode's defaults. |
 | Convection | Select | The fan: Off, On or Super, as the mode allows. |
 | Level | Select | Broil intensity (Low, Medium or High) or slow-cook level (Low or High). These modes use it instead of Target temperature. |
 | Keep warm | Switch (configuration) | Keeps the food warm when the cook finishes. |
@@ -227,8 +227,9 @@ Settings for the next cook are kept in Home Assistant, survive restarts, and
 go to the appliance only when a cook starts. Changing settings in the
 Breville+ app doesn't change them here.
 While a cook runs, **Target temperature** and **Cook time** show the running
-cook, and on a sous vide changing them changes it. As in the app, a running
-oven cook can't be changed: its **Cook time** shows the cook's length, and all
+cook, and on a sous vide changing them changes it. On the oven, **Mode**,
+**Convection** and **Level** show it too, even for a cook started on the oven
+itself. As in the app, a running oven cook can't be changed: its **Cook time** shows the cook's length, and all
 of its settings can only be changed while it's idle. Like the app, the
 integration keeps to each model's temperature and time limits.
 
@@ -385,15 +386,16 @@ unavailable, and you can then delete them from their device page.
 ## Known limitations
 
 - The BSV600 hasn't been tried on a real appliance, so it's monitor-only
-  unless you allow control in the [options](#options). On the BOV950, only
-  bake, air fry and broil have been tried.
+  unless you allow control in the [options](#options).
 - A running oven cook's temperature and time can't be changed. The Breville+
   app can't change them either.
 - Nobody has tried a Sage account yet.
 - Accounts with multi-factor authentication can't log in.
 - The BSV600's Turbo mode isn't offered.
 - The oven's Toast, Bagel and Crispy reheat modes can't be started from Home
-  Assistant, though **Active mode** shows them.
+  Assistant, though **Active mode** shows them. Neither can Crispier air fry
+  and Convection broil, which the Breville+ app lists: sent from the cloud,
+  either one made the oven go back to idle when Start was pressed.
 - The BOV970 and BOV870 ovens aren't supported. The Breville+ app itself has
   no controls for them yet.
 - Appliances added to the account can take up to 30 minutes to appear.
@@ -403,8 +405,7 @@ unavailable, and you can then delete them from their device page.
 
 ## Testing an appliance
 
-If you have a Joule Turbo or a Sage account, or can try the Joule Oven Air
-Fryer Pro's other modes, you can help get them supported:
+If you have a Joule Turbo or a Sage account, you can help get them supported:
 
 1. Set up the integration, and check that Status, Temperature and the timer
    match the appliance.
@@ -507,10 +508,11 @@ Thanks to [CityDweller](https://github.com/CityDweller) for testing and
 debugging the Joule Oven Air Fryer Pro support on a real oven, one release
 after another ([#1](https://github.com/kedube/ha-breville-cooking/issues/1)).
 CityDweller's careful notes and diagnostics from every step tracked down the
-oven's cook timer, Continue after preheating, the end of a cook and when
-preheating ends, caught the oven's serial number leaking into diagnostics, and
-showed that a running oven cook can't be changed. The oven is marked as tested
-because of that work.
+oven's cook timer, Continue after preheating, the end of a cook, keep warm and
+when preheating ends, tried every mode (finding two the oven won't start from
+the cloud) and cooks started on the oven itself, caught the oven's serial
+number leaking into diagnostics, and showed that a running oven cook can't be
+changed. The oven is marked as tested because of that work.
 
 ## Trademarks
 

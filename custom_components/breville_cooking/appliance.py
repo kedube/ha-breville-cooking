@@ -246,19 +246,20 @@ OVEN_MODES: dict[str, OvenMode] = {
             round_to=1,
         ),
         _bake("bottom_bake", "bottomBake", 13),
-        _bake("gentle_broil", "gentleBroil", 17),
         _broil("bottom_broil", "bottomBroil", 14),
         _broil("outer_top_broil", "outerTopBroil", 15),
         _broil("middle_top_broil", "middleTopBroil", 16),
-        _broil("windy_broil", "windyBroil", 18),
     )
 }
 
 # Reported appliance.mode values (ModeTaskEngine) -> mode option, including
-# modes that can only be started on the appliance itself.
+# modes that can only be started on the appliance itself. The app also has
+# Crispier air fry (gentleBroil, 17) and Convection broil (windyBroil, 18), but
+# a BOV950 sent either from the cloud went back to idle when Start was pressed
+# (issue #1), so they're only reported.
 TASK_ENGINE_MODES: dict[int, str] = {
-    0: "toast", 1: "bagel", 19: "keep_warm", 23: "sous_vide", 24: "turbo",
-    26: "crispy_reheat",
+    0: "toast", 1: "bagel", 17: "gentle_broil", 18: "windy_broil", 19: "keep_warm",
+    23: "sous_vide", 24: "turbo", 26: "crispy_reheat",
     **{m.task_engine: m.option for m in OVEN_MODES.values()},
 }
 REPORTED_MODE_OPTIONS = sorted(set(TASK_ENGINE_MODES.values()))
@@ -337,6 +338,8 @@ class ApplianceStatus:
     # The temperature an oven holds its own sensor at while it cooks
     # (heater.temp_sp_m), below the setpoint.
     sensor_target_c: float | None = None
+    # A running broil or slow cook's level, as the oven reports it.
+    level: int | None = None
 
     @property
     def cooking(self) -> bool:
@@ -546,6 +549,15 @@ def _parse_task_engine(
             HeaterState.PREHEATING: CookState.PREHEATING,
             HeaterState.FINISHED: CookState.DONE,
         }.get(heater_state, CookState.COOKING)
+        if (
+            heater_state == HeaterState.OFF
+            and previous is not None
+            and previous.state in (CookState.PREHEATING, CookState.COOKING)
+        ):
+            # Stopped during a cook started on its own panel, an oven reported
+            # it once more with the heater off before going idle (issue #1):
+            # it hasn't moved on.
+            status.state = previous.state
     else:
         status.state = CookState.IDLE
     if errors:
@@ -560,6 +572,13 @@ def _parse_task_engine(
         status.target_temp_c = _target_temp_c(s, heater, legacy)
         if MODELS[model].kind is Kind.OVEN:
             status.sensor_target_c = _num(heater.get("temp_sp_m")) or None
+        running = OVEN_MODES.get(status.mode or "")
+        if running is not None and running.type in (OvenModeType.BROIL, OvenModeType.SLOW_COOK):
+            # A broil or slow cook reports its level as the preset: 1 to 3 as
+            # sent, in six cooks (issue #1). Other modes can leave the last
+            # cook's there.
+            level = _num(appliance.get("preset"))
+            status.level = int(level) if level else None
         if status.state is CookState.PREHEATING:
             target = status.target_temp_c
             if MODELS[model].kind is Kind.OVEN:
@@ -584,8 +603,8 @@ def _parse_task_engine(
             ):
                 status.preheat_pct = max(status.preheat_pct or 0, previous.preheat_pct)
         # Keeping warm after a cook, and in the report that ends keep warm, the
-        # cook's mode and length are the ones it had while cooking, when Home
-        # Assistant saw it: the mode is keep warm's now, and the timer keep
+        # cook's mode, level and length are the ones it had while cooking, when
+        # Home Assistant saw it: the mode is keep warm's now, and the timer keep
         # warm's hour.
         warming = status.state is CookState.KEEPING_WARM or status.mode == "keep_warm"
         seen_cooking = (
@@ -596,6 +615,7 @@ def _parse_task_engine(
         )
         if seen_cooking:
             status.cook_mode = previous.cook_mode or previous.mode
+            status.level = previous.level
         if timer and timer.get("down_from_n") not in (None, SKIP_TIMER_VALUE):
             status.cook_time_s = int(timer["down_from_n"])
             if warming:

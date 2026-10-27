@@ -167,11 +167,9 @@
           "warm": "保温",
           "dehydrate": "烘干",
           "bottom_bake": "下火烘焙",
-          "gentle_broil": "更酥脆空气炸",
           "bottom_broil": "下火炙烤",
           "outer_top_broil": "外圈炙烤",
-          "middle_top_broil": "中间上火炙烤",
-          "windy_broil": "热风炙烤"
+          "middle_top_broil": "中间上火炙烤"
         }
       },
       "convection": {
@@ -232,11 +230,9 @@
         "warm": "保温",
         "dehydrate": "烘干",
         "bottom_bake": "下火烘焙",
-        "gentle_broil": "更酥脆空气炸",
         "bottom_broil": "下火炙烤",
         "outer_top_broil": "外圈炙烤",
-        "middle_top_broil": "中间上火炙烤",
-        "windy_broil": "热风炙烤"
+        "middle_top_broil": "中间上火炙烤"
       }
     },
     "convection": {

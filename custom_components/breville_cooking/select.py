@@ -53,6 +53,10 @@ async def async_setup_entry(
 class OvenSettingSelect(BrevilleEntity, SelectEntity, RestoreEntity):
     @property
     def mode(self) -> OvenMode | None:
+        """The mode whose options apply: the running one, else the selected one."""
+        status = self.appliance.status
+        if status.active and (running := status.cook_mode or status.mode) in OVEN_MODES:
+            return OVEN_MODES[running]
         return OVEN_MODES.get(self.appliance.settings.mode or "")
 
     def _ensure_idle(self) -> None:
@@ -140,7 +144,9 @@ class LevelSelect(OvenSettingSelect):
 
     @property
     def current_option(self) -> str | None:
-        level = self.appliance.settings.level
+        status = self.appliance.status
+        # The running cook's level when the oven reports it, else the next cook's.
+        level = status.level if status.active and status.level else self.appliance.settings.level
         return next((name for name, value in self._levels.items() if value == level), None)
 
     async def async_select_option(self, option: str) -> None:

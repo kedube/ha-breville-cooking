@@ -167,11 +167,9 @@
           "warm": "Warmhouden",
           "dehydrate": "Drogen",
           "bottom_bake": "Onderkant bakken",
-          "gentle_broil": "Krokanter airfryen",
           "bottom_broil": "Onderkant grillen",
           "outer_top_broil": "Buitenkant grillen",
-          "middle_top_broil": "Midden-boven grillen",
-          "windy_broil": "Convectie grillen"
+          "middle_top_broil": "Midden-boven grillen"
         }
       },
       "convection": {
@@ -232,11 +230,9 @@
         "warm": "Warmhouden",
         "dehydrate": "Drogen",
         "bottom_bake": "Onderkant bakken",
-        "gentle_broil": "Krokanter airfryen",
         "bottom_broil": "Onderkant grillen",
         "outer_top_broil": "Buitenkant grillen",
-        "middle_top_broil": "Midden-boven grillen",
-        "windy_broil": "Convectie grillen"
+        "middle_top_broil": "Midden-boven grillen"
       }
     },
     "convection": {

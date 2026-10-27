@@ -167,11 +167,9 @@
           "warm": "Mantener caliente",
           "dehydrate": "Deshidratar",
           "bottom_bake": "Hornear por abajo",
-          "gentle_broil": "Freír con aire más crujiente",
           "bottom_broil": "Gratinar por abajo",
           "outer_top_broil": "Gratinar exterior",
-          "middle_top_broil": "Gratinar centro superior",
-          "windy_broil": "Gratinar con convección"
+          "middle_top_broil": "Gratinar centro superior"
         }
       },
       "convection": {
@@ -232,11 +230,9 @@
         "warm": "Mantener caliente",
         "dehydrate": "Deshidratar",
         "bottom_bake": "Hornear por abajo",
-        "gentle_broil": "Freír con aire más crujiente",
         "bottom_broil": "Gratinar por abajo",
         "outer_top_broil": "Gratinar exterior",
-        "middle_top_broil": "Gratinar centro superior",
-        "windy_broil": "Gratinar con convección"
+        "middle_top_broil": "Gratinar centro superior"
       }
     },
     "convection": {

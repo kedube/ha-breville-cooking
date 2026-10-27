@@ -167,11 +167,9 @@
           "warm": "Mantenimento in caldo",
           "dehydrate": "Essiccazione",
           "bottom_bake": "Cottura dal basso",
-          "gentle_broil": "Frittura ad aria più croccante",
           "bottom_broil": "Grill inferiore",
           "outer_top_broil": "Grill esterno",
-          "middle_top_broil": "Grill centrale superiore",
-          "windy_broil": "Grill ventilato"
+          "middle_top_broil": "Grill centrale superiore"
         }
       },
       "convection": {
@@ -232,11 +230,9 @@
         "warm": "Mantenimento in caldo",
         "dehydrate": "Essiccazione",
         "bottom_bake": "Cottura dal basso",
-        "gentle_broil": "Frittura ad aria più croccante",
         "bottom_broil": "Grill inferiore",
         "outer_top_broil": "Grill esterno",
-        "middle_top_broil": "Grill centrale superiore",
-        "windy_broil": "Grill ventilato"
+        "middle_top_broil": "Grill centrale superiore"
       }
     },
     "convection": {

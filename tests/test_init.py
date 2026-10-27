@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -368,6 +368,74 @@ async def test_real_oven_cook(
     ))
     assert hass.states.get("sensor.kitchen_oven_temperature").state == "unknown"
     assert hass.states.get("switch.kitchen_oven_cook").state == STATE_OFF
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+def panel_cook(version: int, **reported) -> dict:
+    """A cook started on the oven's own panel: no recipe or step, only a cook (issue #1, 0.10)."""
+    message = real_oven(version, **reported)
+    for key in ("recipe", "currentStage", "currentStep", "currentInstruction", "currentStepState"):
+        message["data"]["reported"].pop(key)
+    return message
+
+
+async def test_cooks_started_on_the_oven(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """Followed as they run, with the running cook's settings, and stopped from Home Assistant."""
+    now = int(dt_util.utcnow().timestamp())
+    no_setpoint = {"state": 2, "temp_sp": 0, "temp_sp_f": 0, "temp_sp_m": 0, "cur_temp": 30}
+    # A toast can't be started from Home Assistant, so Mode has nothing to show.
+    await push(hass, socket, panel_cook(
+        1, cookUUID="toast-1", motor=0, heater=no_setpoint,
+        appliance={"mode": 0, "rotate_state": 0, "preset": 3, "cook_segment": 0, "frozen": 0},
+        timers=[{"id": 0, "timestamp": now, "now": 263, "state": 1, "down_from_n": 264, "usage": 6}, None],
+    ))
+    assert hass.states.get("sensor.kitchen_oven_status").state == "cooking"
+    assert hass.states.get("sensor.kitchen_oven_active_mode").state == "toast"
+    assert hass.states.get("select.kitchen_oven_mode").state == STATE_UNKNOWN
+    assert hass.states.get("select.kitchen_oven_level").state == STATE_UNAVAILABLE
+    await call(hass, "switch", "turn_off", "switch.kitchen_oven_cook")
+    client.stop_recipe.assert_awaited_once()
+
+    # A bottom broil on Medium, with the next cook set to bake: the selects show the broil's.
+    await push(hass, socket, panel_cook(
+        2, cookUUID="broil-1", motor=0, heater=no_setpoint,
+        appliance={"mode": 14, "rotate_state": 0, "preset": 2, "cook_segment": 0, "frozen": 0},
+        timers=[{"id": 0, "timestamp": now, "now": 600, "state": 1, "down_from_n": 600, "usage": 6}, None],
+    ))
+    assert hass.states.get("select.kitchen_oven_mode").state == "bottom_broil"
+    level = hass.states.get("select.kitchen_oven_level")
+    assert (level.state, level.attributes["options"]) == ("medium", ["low", "medium", "high"])
+    convection = hass.states.get("select.kitchen_oven_convection")
+    assert (convection.state, convection.attributes["options"]) == ("off", ["off"])
+    assert hass.states.get("number.kitchen_oven_cook_time").state == "10"
+
+    # A bake: its timer is there from the start, waiting for preheating to end.
+    await push(hass, socket, panel_cook(
+        3, cookUUID="bake-1", motor=1,
+        heater={"state": 1, "temp_sp": 205, "temp_sp_f": 400, "temp_sp_m": 189, "cur_temp": 51},
+        appliance={"mode": 3, "rotate_state": 1, "preset": 3, "cook_segment": 0, "frozen": 0},
+        timers=[{"id": 0, "timestamp": now, "now": 960, "state": 0, "down_from_n": 960, "usage": 6}, None],
+    ))
+    assert hass.states.get("sensor.kitchen_oven_status").state == "preheating"
+    assert hass.states.get("sensor.kitchen_oven_preheat").state == "29"
+    assert hass.states.get("sensor.kitchen_oven_time_remaining").state == STATE_UNKNOWN
+    assert hass.states.get("number.kitchen_oven_cook_time").state == "16"
+    target = hass.states.get("number.kitchen_oven_target_temperature")
+    assert float(target.state) == pytest.approx(204.4, abs=0.1)  # 400 °F
+    # The preset left over from the broil isn't a level for a bake.
+    assert hass.states.get("select.kitchen_oven_level").state == STATE_UNAVAILABLE
+
+    # Stopped, it reports the bake once more with the heater off before going idle.
+    await call(hass, "switch", "turn_off", "switch.kitchen_oven_cook")
+    await push(hass, socket, panel_cook(
+        4, cookUUID="bake-1", motor=1,
+        heater={"state": 0, "temp_sp": 205, "temp_sp_f": 400, "temp_sp_m": 189, "cur_temp": 48},
+        appliance={"mode": 3, "rotate_state": 1, "preset": 3, "cook_segment": 0, "frozen": 0},
+        timers=[{"id": 0, "timestamp": now, "now": 960, "state": 0, "down_from_n": 960, "usage": 6}, None],
+    ))
+    assert hass.states.get("sensor.kitchen_oven_status").state == "preheating"
     await hass.config_entries.async_unload(entry.entry_id)
 
 

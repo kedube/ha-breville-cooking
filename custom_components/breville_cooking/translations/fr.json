@@ -167,11 +167,9 @@
           "warm": "Maintien au chaud",
           "dehydrate": "Déshydratation",
           "bottom_bake": "Cuisson par le dessous",
-          "gentle_broil": "Friture à air chaud plus croustillante",
           "bottom_broil": "Gril par le dessous",
           "outer_top_broil": "Gril extérieur",
-          "middle_top_broil": "Gril central supérieur",
-          "windy_broil": "Gril à convection"
+          "middle_top_broil": "Gril central supérieur"
         }
       },
       "convection": {
@@ -232,11 +230,9 @@
         "warm": "Maintien au chaud",
         "dehydrate": "Déshydratation",
         "bottom_bake": "Cuisson par le dessous",
-        "gentle_broil": "Friture à air chaud plus croustillante",
         "bottom_broil": "Gril par le dessous",
         "outer_top_broil": "Gril extérieur",
-        "middle_top_broil": "Gril central supérieur",
-        "windy_broil": "Gril à convection"
+        "middle_top_broil": "Gril central supérieur"
       }
     },
     "convection": {

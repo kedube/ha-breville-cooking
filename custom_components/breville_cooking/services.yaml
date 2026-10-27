@@ -31,11 +31,9 @@ start_cook:
             - warm
             - dehydrate
             - bottom_bake
-            - gentle_broil
             - bottom_broil
             - outer_top_broil
             - middle_top_broil
-            - windy_broil
     convection:
       selector:
         select:
