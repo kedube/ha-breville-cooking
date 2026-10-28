@@ -352,11 +352,12 @@ be started on the appliance itself. The oven reports 0 toast (seen for a toast
 started on the oven), 1 bagel, 19 keep warm and 26 crispy reheat. The Joule
 Turbo reports 23 sous vide and 24 turbo.
 
-The app also lists `gentleBroil` (Crispier Air Fry, 17), which it sets up
-like `bake`, and `windyBroil` (Convection Broil, 18), set up like `broil`. A
+The app's code also has `gentleBroil` (Crispier Air Fry, 17), which it sets
+up like `bake`, and `windyBroil` (Convection Broil, 18), set up like `broil`,
+but the app doesn't offer either one for the oven (checked in the iOS app). A
 Joule Oven accepted either one and waited for Start, but pressing Start sent it
 back to `idle`: for a moment with `appliance.mode` 17 or 18, then 3. So the
-integration doesn't offer them.
+integration doesn't offer them either.
 
 ### Change a Joule cook
 

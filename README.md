@@ -394,8 +394,9 @@ unavailable, and you can then delete them from their device page.
 - The BSV600's Turbo mode isn't offered.
 - The oven's Toast, Bagel and Crispy reheat modes can't be started from Home
   Assistant, though **Active mode** shows them. Neither can Crispier air fry
-  and Convection broil, which the Breville+ app lists: sent from the cloud,
-  either one made the oven go back to idle when Start was pressed.
+  and Convection broil. The Breville+ app's code has them, but the app doesn't
+  offer them, and sent from the cloud, either one made the oven go back to
+  idle when Start was pressed.
 - The BOV970 and BOV870 ovens aren't supported. The Breville+ app itself has
   no controls for them yet.
 - Appliances added to the account can take up to 30 minutes to appear.
