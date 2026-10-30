@@ -10,6 +10,24 @@ from typing import Any
 
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+
+from custom_components.breville_cooking.const import DOMAIN
+
+
+def appliance_device(hass: HomeAssistant, serial: str) -> dr.DeviceEntry:
+    """An appliance's device, found the same way on every supported Home Assistant version.
+
+    Home Assistant reports async_get_device as deprecated, and fails tests that call it.
+    """
+    registry = dr.async_get(hass)
+    [device] = [
+        device
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        for device in dr.async_entries_for_config_entry(registry, entry.entry_id)
+        if (DOMAIN, serial) in device.identifiers
+    ]
+    return device
 
 
 def make_jwt(sub: str = "Salesforce|0051234", exp_in: float = 3600, **claims: Any) -> str:

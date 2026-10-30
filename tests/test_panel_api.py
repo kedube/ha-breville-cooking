@@ -14,7 +14,7 @@ import pytest
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
@@ -27,7 +27,18 @@ from custom_components.breville_cooking.const import (
 )
 from custom_components.breville_cooking.presets import BUILTIN_PRESETS, MAX_CUSTOM_PRESETS
 
-from .common import JOULE, OVEN, OVEN_IDLE, FakeSocket, csj, flush, make_jwt, push, real_oven
+from .common import (
+    JOULE,
+    OVEN,
+    OVEN_IDLE,
+    FakeSocket,
+    appliance_device,
+    csj,
+    flush,
+    make_jwt,
+    push,
+    real_oven,
+)
 
 TURBO = "T600123"
 
@@ -66,7 +77,7 @@ def by_model(message: dict) -> dict[str, dict]:
 
 
 def device_id(hass: HomeAssistant, serial: str) -> str:
-    return dr.async_get(hass).async_get_device(identifiers={(DOMAIN, serial)}).id
+    return appliance_device(hass, serial).id
 
 
 def registered_entities(hass: HomeAssistant, entry: MockConfigEntry, serial: str) -> dict:

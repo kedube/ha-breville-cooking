@@ -29,7 +29,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.breville_cooking.const import CONF_ALLOW_UNTESTED_CONTROL, DOMAIN
 from custom_components.breville_cooking.panel_api import panel_message
 
-from .common import JOULE, OVEN, FakeSocket, call, csj, flush, push
+from .common import JOULE, OVEN, FakeSocket, appliance_device, call, csj, flush, push
 
 FIXTURES = Path(__file__).parent / "fixtures" / "panel"
 NOW = datetime(2026, 10, 25, 18, 0, tzinfo=UTC)
@@ -108,7 +108,7 @@ PLACEHOLDERS = {"entry": "entry-1", JOULE: "device-joule", OVEN: "device-oven"}
 
 
 def _fixture(hass: HomeAssistant, entry: MockConfigEntry, serial: str) -> dict:
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, serial)})
+    device = appliance_device(hass, serial)
     message = panel_message(hass, [])
     [appliance] = [a for a in message["appliances"] if a["device_id"] == device.id]
     appliance = {**appliance, "device_id": PLACEHOLDERS[serial], "entry_id": PLACEHOLDERS["entry"]}
@@ -166,8 +166,7 @@ async def test_panel_fixture(
     await flush(hass)
     kitchen = ar.async_get(hass).async_get_or_create("Kitchen")
     for each in (JOULE, OVEN):
-        device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, each)})
-        dr.async_get(hass).async_update_device(device.id, area_id=kitchen.id)
+        dr.async_get(hass).async_update_device(appliance_device(hass, each).id, area_id=kitchen.id)
     for domain, service, entity_id in settings[0] if settings else []:
         await call(hass, domain, service, entity_id)
     await push(hass, socket, *(make() for make in messages))

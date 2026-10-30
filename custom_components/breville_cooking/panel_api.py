@@ -351,12 +351,15 @@ def _find_appliance(
 
     The coordinator and appliance are None while the appliance's entry isn't set up.
     """
-    device = dr.async_get(hass).async_get(device_id)
+    devices = dr.async_get(hass)
+    device = devices.async_get(device_id)
     if device is None:
         return None, None, False
     serials = {identifier for domain, identifier in device.identifiers if domain == DOMAIN}
     for entry in panel_entries(hass):
-        if entry.entry_id not in device.config_entries:
+        # DeviceEntry.config_entries stops working in Home Assistant 2027.10, and its
+        # replacement, config_entry_id, doesn't exist in the oldest versions this supports.
+        if device not in dr.async_entries_for_config_entry(devices, entry.entry_id):
             continue
         if (coordinator := _coordinator(hass, entry)) is None:
             return None, None, True

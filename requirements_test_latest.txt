@@ -1,0 +1,3 @@
+# Pins the newest Home Assistant the test harness supports, 2026.10.4, so deprecations show up
+# before they break; move it up as pytest-homeassistant-custom-component follows new releases.
+pytest-homeassistant-custom-component==0.13.375

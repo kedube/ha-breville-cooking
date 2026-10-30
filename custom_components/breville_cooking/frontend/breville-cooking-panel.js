@@ -2681,7 +2681,8 @@ var Bt=globalThis,jt=Bt.ShadowRoot&&(Bt.ShadyCSS===void 0||Bt.ShadyCSS.nativeSha
         display: flex;
         flex-direction: column;
         min-height: 100%;
-        background: var(--bc-page-bg);
+        /* A theme's panel background (Home Assistant 2026.11), which may be a gradient or image. */
+        background: var(--ha-panel-background, var(--bc-page-bg));
         color: var(--bc-text);
         -webkit-font-smoothing: antialiased;
       }

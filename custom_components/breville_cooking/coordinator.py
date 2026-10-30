@@ -221,9 +221,13 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
 
     @callback
     def _update_sw_version(self, appliance: Appliance) -> None:
+        # By config entry: async_get_device stops working in Home Assistant 2027.8, and its
+        # replacements don't exist in the oldest versions this supports.
         registry = dr.async_get(self.hass)
-        if device := registry.async_get_device(identifiers={(DOMAIN, appliance.serial)}):
-            registry.async_update_device(device.id, sw_version=appliance.status.firmware)
+        for device in dr.async_entries_for_config_entry(registry, self.config_entry.entry_id):
+            if (DOMAIN, appliance.serial) in device.identifiers:
+                registry.async_update_device(device.id, sw_version=appliance.status.firmware)
+                return
 
     # -- commands --------------------------------------------------------------
 

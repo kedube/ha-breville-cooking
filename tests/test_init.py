@@ -13,7 +13,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.json import ExtendedJSONEncoder
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -34,6 +34,7 @@ from .common import (
     OVEN_IDLE,
     PROFILE,
     FakeSocket,
+    appliance_device,
     call,
     csj,
     flush,
@@ -80,9 +81,8 @@ async def test_sage_account(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await flush(hass)
     assert client_class.call_args.kwargs["endpoints"].app_channel == "sageJoule"
-    devices = dr.async_get(hass)
-    assert devices.async_get_device(identifiers={(DOMAIN, OVEN)}).manufacturer == "Sage"
-    assert devices.async_get_device(identifiers={(DOMAIN, JOULE)}).manufacturer == "ChefSteps"
+    assert appliance_device(hass, OVEN).manufacturer == "Sage"
+    assert appliance_device(hass, JOULE).manufacturer == "ChefSteps"
     await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -104,9 +104,8 @@ async def test_appliances_added_and_removed_later(
 
     # The oven has left the account: unavailable, and its device can be deleted.
     assert hass.states.get("sensor.kitchen_oven_status").state == STATE_UNAVAILABLE
-    devices = dr.async_get(hass)
-    joule = devices.async_get_device(identifiers={(DOMAIN, JOULE)})
-    oven = devices.async_get_device(identifiers={(DOMAIN, OVEN)})
+    joule = appliance_device(hass, JOULE)
+    oven = appliance_device(hass, OVEN)
     assert await async_remove_config_entry_device(hass, entry, joule) is False
     assert await async_remove_config_entry_device(hass, entry, oven) is True
     assert OVEN not in coordinator.appliances and socket.unsubscribed == [OVEN]
