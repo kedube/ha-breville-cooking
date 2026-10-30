@@ -12,5 +12,5 @@
   "issue_tracker": "https://github.com/kedube/ha-breville-cooking/issues",
   "loggers": ["custom_components.breville_cooking"],
   "requirements": [],
-  "version": "0.11"
+  "version": "0.12"
 }
