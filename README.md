@@ -1,6 +1,6 @@
 # Breville+ Cooking for Home Assistant
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://hacs.xyz)
 [![GitHub release](https://img.shields.io/github/v/release/kedube/ha-breville-cooking)](https://github.com/kedube/ha-breville-cooking/releases)
 [![CI](https://github.com/kedube/ha-breville-cooking/actions/workflows/ci.yml/badge.svg)](https://github.com/kedube/ha-breville-cooking/actions/workflows/ci.yml)
 ![Home Assistant 2026.2+](https://img.shields.io/badge/Home%20Assistant-2026.2%2B-41BDF5.svg)
@@ -56,21 +56,14 @@ in the HACS default store; check its README for the models it supports.
 
 ### HACS (recommended)
 
-This repository is not in the HACS default store, so add it to HACS as a
-custom repository. The quickest way is this button, which opens it in HACS on
-your Home Assistant:
+1. In Home Assistant, open **HACS**.
+2. Search for **Breville+ Cooking**, open it and select **Download**.
+3. Restart Home Assistant.
+4. [Add the integration](#setup).
+
+Or use this button to open Breville+ Cooking in HACS on your Home Assistant:
 
 [![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=kedube&repository=ha-breville-cooking&category=integration)
-
-Or add it by hand:
-
-1. In Home Assistant, open **HACS**.
-2. Open the menu (**⋮**, top right) and choose **Custom repositories**.
-3. Enter `https://github.com/kedube/ha-breville-cooking`, choose the type
-   **Integration**, and select **Add**.
-4. Search HACS for **Breville+ Cooking**, open it and select **Download**.
-5. Restart Home Assistant.
-6. [Add the integration](#setup).
 
 ### Updating
 
