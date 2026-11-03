@@ -1,8 +1,8 @@
 """Per-model knowledge: reading appliance state and building cook requests.
 
 Joule (CSJ100) behaviour was verified against a real appliance. BSV600 and
-BOV950 support follows the Breville+ app (1.96.0) code; the BOV950's has since
-been tried on a real oven (issue #1), the BSV600's is unverified.
+BOV950 support follows the Breville+ app (1.96.0) code. The BOV950's has since
+been tried on a real oven (issue #1), and a BSV600 owner reports that it works.
 No Home Assistant imports.
 """
 
@@ -62,7 +62,7 @@ MODELS: dict[str, ModelInfo] = {
     ),
     MODEL_BSV600: ModelInfo(
         MODEL_BSV600, "Joule Turbo Sous Vide", "Breville", Kind.SOUS_VIDE,
-        20.0, 92.0, 96 * HOUR,
+        20.0, 92.0, 96 * HOUR, tested=True,
     ),
     MODEL_BOV950: ModelInfo(
         MODEL_BOV950, "Joule Oven Air Fryer Pro", "Breville", Kind.OVEN,

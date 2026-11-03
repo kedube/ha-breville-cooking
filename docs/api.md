@@ -17,8 +17,10 @@ Each part of the API is marked as one of:
 - **Verified**: tried on a real appliance in October 2026: a Joule (CSJ100:
   hardware J5, firmware 123, Wi-Fi firmware 52), or where it says so, a Joule
   Oven (BOV950, firmware 1.10.21) baking.
-- **From the app**: read from the app's code. Nobody has tried it on a real
-  appliance yet.
+- **From the app**: read from the app's code, and not yet checked against a
+  real appliance's messages. A Joule Turbo owner reported in November 2026 that
+  it works without any issues, but its parts keep this label until they're
+  checked that way.
 
 Contents: [Overview](#overview) · [Brands](#brands) ·
 [Logging in](#logging-in) · [Appliance list](#appliance-list) ·

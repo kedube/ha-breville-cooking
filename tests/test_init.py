@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 import json
 from unittest.mock import MagicMock, patch
@@ -20,7 +21,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.breville_cooking import async_remove_config_entry_device
 from custom_components.breville_cooking.api import BrevilleAuthError
-from custom_components.breville_cooking.appliance import OVEN_MODES
+from custom_components.breville_cooking.appliance import MODEL_BSV600, MODELS, OVEN_MODES
 from custom_components.breville_cooking.const import CONF_ALLOW_UNTESTED_CONTROL, DOMAIN
 from custom_components.breville_cooking.diagnostics import (
     REDACTED,
@@ -186,9 +187,7 @@ TURBO_COOKING = {
 }
 
 
-async def test_untested_models_are_monitor_only(
-    hass: HomeAssistant, socket: FakeSocket, client: MagicMock
-) -> None:
+async def setup_turbo(hass: HomeAssistant, client: MagicMock) -> MockConfigEntry:
     client.get_appliances.return_value = {
         "appliances": [{"model": "BSV600", "serialNumber": TURBO, "name": "Turbo", "itemNumber": "BSV600PSS"}]
     }
@@ -199,6 +198,15 @@ async def test_untested_models_are_monitor_only(
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await flush(hass)
+    return entry
+
+
+async def test_untested_models_are_monitor_only(
+    hass: HomeAssistant, socket: FakeSocket, client: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every supported model is tested, so the Joule Turbo stands in for an untested one.
+    monkeypatch.setitem(MODELS, MODEL_BSV600, replace(MODELS[MODEL_BSV600], tested=False))
+    entry = await setup_turbo(hass, client)
     await push(hass, socket, TURBO_IDLE)
     with pytest.raises(ServiceValidationError) as err:
         await call(hass, "switch", "turn_on", "switch.turbo_cook")
@@ -221,6 +229,22 @@ async def test_untested_models_are_monitor_only(
     hass.config_entries.async_update_entry(entry, options={CONF_ALLOW_UNTESTED_CONTROL: True})
     await call(hass, "switch", "turn_on", "switch.turbo_cook")
     client.load_manual_recipe.assert_awaited_once()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_the_joule_turbo_is_tested(
+    hass: HomeAssistant, socket: FakeSocket, client: MagicMock
+) -> None:
+    """Reported working by an owner, the Joule Turbo can be controlled without the option."""
+    entry = await setup_turbo(hass, client)
+    await push(hass, socket, TURBO_IDLE)
+    await call(hass, "switch", "turn_on", "switch.turbo_cook")
+    client.load_manual_recipe.assert_awaited_once()
+
+    # Unlike the oven's, its running cook can be changed.
+    await push(hass, socket, TURBO_COOKING)
+    await call(hass, "number", "set_value", "number.turbo_target_temperature", value=60)
+    client.update_cook.assert_awaited_once()
     await hass.config_entries.async_unload(entry.entry_id)
 
 

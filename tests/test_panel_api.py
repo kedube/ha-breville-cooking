@@ -5,6 +5,7 @@ The payload is `PanelMessage` in frontend/src/types.ts.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 import json
 from typing import Any
@@ -20,6 +21,7 @@ from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.breville_cooking import panel_api
+from custom_components.breville_cooking.appliance import MODEL_BSV600, MODELS
 from custom_components.breville_cooking.const import (
     CONF_ALLOW_UNTESTED_CONTROL,
     CONF_SHOW_SIDEBAR_PANEL,
@@ -150,7 +152,7 @@ async def test_a_joule_turbo_is_described(
         "sous_vide", "white_polished", "Joule Turbo Sous Vide"
     )
     assert turbo["limits"]["max_temp_c"] == 92.0
-    assert (turbo["tested"], turbo["control_allowed"]) == (False, False)
+    assert (turbo["tested"], turbo["control_allowed"]) == (True, True)
 
 
 async def test_live_changes_are_sent_once_a_burst_is_over(
@@ -186,9 +188,11 @@ async def test_disabled_entities_are_left_out(
 
 
 async def test_options_are_followed_without_a_reload(
-    hass: HomeAssistant, client: MagicMock, hass_ws_client
+    hass: HomeAssistant, client: MagicMock, hass_ws_client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The Joule Turbo is still untested, so the option decides whether it can be controlled.
+    # Every supported model is tested, so the Joule Turbo stands in for an untested
+    # one, where the option decides whether it can be controlled.
+    monkeypatch.setitem(MODELS, MODEL_BSV600, replace(MODELS[MODEL_BSV600], tested=False))
     client.get_appliances.return_value = {
         "appliances": [{"model": "BSV600", "serialNumber": TURBO, "name": "Turbo", "itemNumber": "BSV600PSS"}]
     }

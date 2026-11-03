@@ -29,14 +29,12 @@ Breville.
 | Appliance | Model | Status |
 |---|---|---|
 | ChefSteps Joule Sous Vide | CSJ100 | Tested on a real appliance |
-| Joule Turbo Sous Vide | BSV600 | Built from the app's code; untested |
+| Joule Turbo Sous Vide | BSV600 | Tested on a real appliance |
 | Joule Oven Air Fryer Pro | BOV950 | Tested on a real oven: all 15 modes start, and bake, air fry and broil were run to the end, with Continue after preheating and Keep warm. Cooks started on the oven itself show up and can be stopped |
 
-Untested appliances are monitor-only until you allow control in the
-integration's [options](#options). If you have one, please
-[help test it](#testing-an-appliance). Sage-branded appliances, sold in the
-UK, Europe and the UAE, are supported the same way, but nobody has tried a
-Sage account yet.
+Sage-branded appliances, sold in the UK, Europe and the UAE, are supported the
+same way, but nobody has tried a Sage account yet. If you have one, please
+[help test it](#testing-an-appliance).
 
 Other appliances on the account are ignored. For espresso machines, use the
 [Sage Coffee](https://github.com/simonjgreen/sageha) integration instead. It's
@@ -107,11 +105,10 @@ another account, add the integration again.
 
 ### Options
 
-**Allow control of untested appliances** is off at first. The Joule Turbo
-hasn't been tried on a real appliance, so until you turn it on, Home Assistant
-only shows its status and can stop a cook, not start or change one. To turn it on, go to **Settings → Devices & services → Breville+
-Cooking → Configure**, and then
-[report how it goes](#testing-an-appliance).
+**Allow control of untested appliances** is off at first. Every appliance
+supported today has been tested, so for now it changes nothing. It's for models
+added before anyone has tried them: until you turn it on, Home Assistant only
+shows such a model's status and can stop a cook, not start or change one.
 
 **Show in the sidebar** is on at first. It adds the
 [sidebar panel](#sidebar-panel) for everyone who uses Home Assistant. Turn it
@@ -160,9 +157,8 @@ each appliance as a drawing of the real thing, with what it's doing:
 </picture></p>
 
 Anyone who can use Home Assistant can use the panel, as they can the
-appliance's entities, and the same rules apply: untested appliances are
-monitor-only unless you allow control, a running oven cook can't be changed,
-and Stop always works.
+appliance's entities, and the same rules apply: a running oven cook can't be
+changed, and Stop always works.
 
 The built-in presets follow published guidance: USDA FSIS, the FDA Food Code
 and Douglas Baldwin's sous vide tables. Their times assume pieces about 1 in
@@ -378,8 +374,6 @@ unavailable, and you can then delete them from their device page.
 
 ## Known limitations
 
-- The BSV600 hasn't been tried on a real appliance, so it's monitor-only
-  unless you allow control in the [options](#options).
 - A running oven cook's temperature and time can't be changed. The Breville+
   app can't change them either.
 - Nobody has tried a Sage account yet.
@@ -399,17 +393,16 @@ unavailable, and you can then delete them from their device page.
 
 ## Testing an appliance
 
-If you have a Joule Turbo or a Sage account, you can help get them supported:
+If you have a Sage account, you can help get it supported. A report from a
+Joule Turbo helps too, by confirming the details in [docs/api.md](docs/api.md):
 
 1. Set up the integration, and check that Status, Temperature and the timer
    match the appliance.
-2. To try control of a Joule Turbo too, turn on **Allow control of untested
-   appliances** in the [options](#options). Stay near the appliance, and only start a sous
-   vide when it's in water.
-3. Try a short cook. Start it with **Cook**, change **Target temperature**
-   and **Cook time** (on a sous vide; an oven cook can't be changed), press
+2. Try a short cook. Stay near the appliance, and only start a sous vide when
+   it's in water. Start it with **Cook**, change **Target temperature** and
+   **Cook time** (on a sous vide; an oven cook can't be changed), press
    **Continue** when asked, then turn **Cook** off.
-4. Straight away, download the [diagnostics](#troubleshooting) and attach
+3. Straight away, download the [diagnostics](#troubleshooting) and attach
    them to an
    [appliance report](https://github.com/kedube/ha-breville-cooking/issues/new?template=appliance_report.yml),
    whether it all worked or not.
@@ -426,7 +419,6 @@ If you have a Joule Turbo or a Sage account, you can help get them supported:
   then ⋮ → **Reload**.
 - **A removed appliance is still listed:** once it's gone from your account,
   open its device page and delete it.
-- **Starting a cook says it hasn't been tested:** see [Options](#options).
 - **Anything else:** on the same page, choose **Enable debug logging**,
   reproduce the problem, then choose **Disable debug logging** to download the
   log.

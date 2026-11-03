@@ -1,13 +1,13 @@
 name: Appliance report
-description: Tell us how the integration works with your appliance. Reports for the Joule Turbo and the Joule Oven are especially welcome.
+description: Tell us how the integration works with your appliance. Reports from a Sage account or a Joule Turbo are especially welcome.
 title: "Appliance report: "
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for trying the integration! Reports from real appliances are how untested models become supported, whether everything worked or nothing did.
+        Thanks for trying the integration! Reports from real appliances are how new models and brands become supported, whether everything worked or nothing did.
 
-        Untested appliances are monitor-only at first. To try starting or changing cooks, turn on **Allow control of untested appliances** in the integration's options (**Settings → Devices & services → Breville+ Cooking → Configure**), and stay near the appliance while you test.
+        Stay near the appliance while you test, and only start a sous vide when it's in water.
   - type: dropdown
     id: appliance
     attributes:
