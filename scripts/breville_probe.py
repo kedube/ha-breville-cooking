@@ -10,6 +10,7 @@ personal details redacted, to probe-output/capture-*.jsonl.
   python3 scripts/breville_probe.py watch --seconds 600
   python3 scripts/breville_probe.py start --temp 55 --minutes 30 --confirm-water
   python3 scripts/breville_probe.py finish-wait      # food is in: start the timer
+  python3 scripts/breville_probe.py auto-start-timer # while preheating: arm the timer (update-cook)
   python3 scripts/breville_probe.py set-temp --temp 57
   python3 scripts/breville_probe.py stop
 
@@ -160,6 +161,9 @@ def summarize(msg: Any) -> str:
         parts.append(f"target={s['setPoint']:.1f}°C")
     if s.get("cookTime"):
         parts.append(f"timer={s.get('timeRemaining', 0)}/{s['cookTime']}s")
+    if s.get("dropFoodTimestamp"):
+        # Set while preheating, the timer is armed: it starts at temperature.
+        parts.append(f"food-in@{s['dropFoodTimestamp']}")
     if s.get("errorState"):
         parts.append(f"error={s['errorState']} event={s.get('eventType')}/{s.get('eventReason')}")
     return " ".join(parts)
@@ -310,6 +314,10 @@ class Probe:
                 await sock.subscribe(serial_of(appliance), model_of(appliance))
                 self.capture.record("ws", event="subscribed", serial=serial_of(appliance),
                                     model=model_of(appliance))
+            # The integration notices a dropped connection only once the cloud
+            # has answered a ping, so ask straight away and report at the end.
+            await sock.ping()
+            self.capture.record("ws", event="ping")
             span = f"for {seconds:.0f}s" if seconds else "until Ctrl-C"
             print(f"Websocket connected; listening {span}.")
             if action:
@@ -327,6 +335,9 @@ class Probe:
         finally:
             pump_task.cancel()
             await asyncio.gather(pump_task, return_exceptions=True)
+            answered = "yes" if sock.answers_pings else "no pong seen"
+            print(f"Cloud answered pings: {answered}")
+            self.capture.record("ws", event="answers_pings", value=sock.answers_pings)
             await sock.close()
 
     async def send(self, label: str, coro, request: Any) -> bool:
@@ -371,11 +382,13 @@ class Probe:
             if api.csj_is_ul_certified(state) and temp_c_from(self.args) > api.CSJ_COMPLIANCE_PRESS_ABOVE_C:
                 print("Note: this Joule is UL-certified; above 85 °C press its top button to start.")
             firmware = api.csj_firmware(state)
-            await self.send(
+            started = await self.send(
                 "load-manual-recipe",
                 self.client.load_manual_recipe(serial, model, firmware, steps),
                 {"firmware": firmware, "steps": steps},
             )
+            if started and self.args.auto_start_timer:
+                await self.send_auto_start(serial, model, on=True)
 
         await self.watch([appliance], self.args.watch, act)
         return 0
@@ -413,6 +426,34 @@ class Probe:
             if step not in (api.CsjProgramStep.WAIT_FOR_FOOD, api.CsjProgramStep.WAIT_FOR_REMOVE_FOOD):
                 print(f"Note: the Joule is at {step_name(step)}, not waiting for food; sending anyway.")
             await self.send("finish-wait", self.client.finish_wait(serial, model), {"model": model})
+
+        await self.watch([appliance], self.args.watch, act)
+        return 0
+
+    async def send_auto_start(self, serial: str, model: str, *, on: bool) -> bool:
+        updates = [api.auto_start_update(on)]
+        return await self.send(
+            "update-cook (autoStartTimer)",
+            self.client.update_cook(serial, model, updates, uuid="", step=0),
+            {"model": model, "step": 0, "updates": updates, "uuid": ""},
+        )
+
+    async def cmd_auto_start_timer(self) -> int:
+        """Arm the running cook's timer to start at temperature, as the app does.
+
+        The app sends this right after starting a Joule cook: update-cook with
+        autoStartTimer as the number 1. The boolean true got HTTP 400 "Invalid
+        update type". Once armed, the app's toggle is locked, and it never sends
+        0 to a Joule, so --off may not undo it.
+        """
+        appliance = await self.pick()
+        serial, model = serial_of(appliance), model_of(appliance)
+
+        async def act() -> None:
+            step = self.states.get(serial, {}).get("programStep")
+            if step != api.CsjProgramStep.PRE_HEAT:
+                print(f"Note: the Joule is at {step_name(step)}, not preheating; sending anyway.")
+            await self.send_auto_start(serial, model, on=not self.args.off)
 
         await self.watch([appliance], self.args.watch, act)
         return 0
@@ -460,12 +501,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     start.add_argument("--minutes", type=float,
                        help="cook time after the food goes in; omit to hold indefinitely")
     start.add_argument("--auto-start-timer", action="store_true",
-                       help="start the timer when the bath is at temperature instead of waiting for food")
+                       help="start the timer at temperature, as the app does: then send "
+                            "update-cook autoStartTimer=1")
     start.add_argument("--watch", type=float, default=120, help="seconds to listen afterwards")
     start.add_argument("--confirm-water", action="store_true",
                        help="confirm the Joule is in a pot of water")
 
-    set_temp = sub.add_parser("set-temp", help="change the temperature or timer of the running cook")
+    set_temp = sub.add_parser(
+        "set-temp",
+        help="try changing the running cook (a Joule reports the new setpoint but keeps heating to the old one)",
+    )
     set_temp.add_argument("--serial")
     temperature(set_temp, required=False)
     set_temp.add_argument("--minutes", type=float, help="new cook time (minutes)")
@@ -475,6 +520,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                             help="tell the Joule the food is in (starts the timer) or has been removed")
     finish.add_argument("--serial")
     finish.add_argument("--watch", type=float, default=30, help="seconds to listen afterwards")
+
+    auto = sub.add_parser(
+        "auto-start-timer",
+        help="arm the running cook's timer to start at temperature (update-cook autoStartTimer=1)",
+    )
+    auto.add_argument("--serial")
+    auto.add_argument("--off", action="store_true",
+                      help="send 0 instead (the app never does for a Joule; it may not undo it)")
+    auto.add_argument("--watch", type=float, default=300, help="seconds to listen afterwards")
 
     stop = sub.add_parser("stop", help="stop the running cook")
     stop.add_argument("--serial")

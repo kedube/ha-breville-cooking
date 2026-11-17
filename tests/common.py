@@ -62,6 +62,7 @@ class FakeSocket:
         self.subscribed: list[tuple[str, str]] = []
         self.unsubscribed: list[str] = []
         self.connected = False
+        self.answers_pings = False
         self.connect_error: Exception | None = None
 
     async def connect(self) -> None:

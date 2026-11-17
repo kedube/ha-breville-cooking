@@ -313,6 +313,21 @@
     },
     "stop_cook_first": {
       "message": "Arrêtez la cuisson avant de modifier ce réglage."
+    },
+    "cook_over": {
+      "message": "La cuisson est terminée et ne peut plus être modifiée. Arrêtez-la pour en lancer une autre."
+    },
+    "temperature_out_of_range": {
+      "message": "La température de cette cuisson doit être comprise entre {min} et {max}."
+    },
+    "duration_out_of_range": {
+      "message": "Le temps de cuisson doit être compris entre {min} et {max} minutes pour cette cuisson."
+    },
+    "temperature_not_for_mode": {
+      "message": "Ce mode cuit selon un niveau, et non une température."
+    },
+    "cook_running": {
+      "message": "Une cuisson est déjà en cours. Arrêtez-la avant d'en lancer une autre."
     }
   }
 }

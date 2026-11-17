@@ -12,6 +12,7 @@ import base64
 import contextlib
 import json
 import logging
+import math
 import time
 import uuid
 from collections import deque
@@ -63,6 +64,13 @@ class CsjProgramStep(IntEnum):
 # The app checks every 5 s and pings when the socket has been quiet for 15 s.
 WS_PING_AFTER_IDLE = 15.0
 WS_IDLE_CHECK_INTERVAL = 5.0
+# The cloud answers a ping with a pong. Once it has, a connection that receives
+# nothing for this long, through a few pings, has dropped without closing.
+WS_DEAD_AFTER = 45.0
+
+# Cloud calls give up after this long. aiohttp's own default is 5 minutes, and a
+# stuck token refresh would hold up every other call behind it.
+REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 # Recent REST requests kept for diagnostics.
 REQUEST_LOG_SIZE = 20
@@ -119,11 +127,17 @@ class BrevilleMfaRequired(BrevilleAuthError):
     """The account requires multi-factor authentication."""
 
 
+def _endpoint(url: str) -> str:
+    """A URL's last path segment, leaving out the serial number or user ID before it."""
+    return url.rsplit("/", 1)[-1]
+
+
 class BrevilleApiError(BrevilleError):
     """Unexpected HTTP response from the cloud."""
 
     def __init__(self, method: str, url: str, status: int, body: Any) -> None:
-        super().__init__(f"{method} {url} -> HTTP {status}: {body!r}"[:500])
+        # Only the endpoint: the message reaches error toasts and logs that get shared.
+        super().__init__(f"{method} {_endpoint(url)} -> HTTP {status}: {body!r}"[:500])
         self.method = method
         self.url = url
         self.status = status
@@ -132,12 +146,17 @@ class BrevilleApiError(BrevilleError):
 
 def decode_jwt_claims(token: str) -> dict[str, Any]:
     """Return the (unverified) claims of a JWT."""
+    if not isinstance(token, str):
+        raise BrevilleAuthError("Malformed id_token")
     try:
         payload = token.split(".")[1]
         payload += "=" * (-len(payload) % 4)
-        return json.loads(base64.urlsafe_b64decode(payload))
+        claims = json.loads(base64.urlsafe_b64decode(payload))
     except (IndexError, ValueError) as err:
         raise BrevilleAuthError("Malformed id_token") from err
+    if not isinstance(claims, dict):
+        raise BrevilleAuthError("Malformed id_token")
+    return claims
 
 
 @dataclass
@@ -154,11 +173,18 @@ class Tokens:
 
     @property
     def user_id(self) -> str:
-        return self.claims["sub"]
+        sub = self.claims.get("sub")
+        if not isinstance(sub, str) or not sub:
+            raise BrevilleAuthError("The id_token has no user ID")
+        return sub
 
     @property
     def expires_at(self) -> float:
-        return float(self.claims.get("exp", 0))
+        """When the id_token expires; 0, so it's refreshed, when it doesn't say."""
+        exp = self.claims.get("exp")
+        if isinstance(exp, bool) or not isinstance(exp, int | float) or not math.isfinite(exp):
+            return 0.0
+        return float(exp)
 
     def expires_within(self, seconds: float) -> bool:
         return time.time() >= self.expires_at - seconds
@@ -189,8 +215,19 @@ async def _read_body(resp: aiohttp.ClientResponse) -> Any:
         return text
 
 
+def _number(value: Any) -> float | None:
+    """A finite number, else None. Booleans aren't numbers here."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:  # an int too big for a float
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _checked_temp(set_point_c: float) -> float:
-    if not CSJ_MIN_TEMP_C <= set_point_c <= CSJ_MAX_TEMP_C:
+    if _number(set_point_c) is None or not CSJ_MIN_TEMP_C <= set_point_c <= CSJ_MAX_TEMP_C:
         raise ValueError(
             f"setpoint {set_point_c} °C outside {CSJ_MIN_TEMP_C}-{CSJ_MAX_TEMP_C} °C"
         )
@@ -238,8 +275,13 @@ def build_csj_edit_program(
     """
     if not state.get("cookId") or state.get("setPoint") is None:
         raise ValueError("No cook is running")
-    remaining = state.get("timeRemaining")
-    cook_time = remaining if remaining else state.get("cookTime")
+    if state.get("programStep") == CsjProgramStep.WAIT_FOR_REMOVE_FOOD:
+        # Verified: once the timer has run out, a Joule takes the program and
+        # reports its setPoint, but keeps holding the old temperature and
+        # starts no timer.
+        raise ValueError("The cook is over, and the Joule doesn't take changes until it's stopped")
+    remaining = _number(state.get("timeRemaining"))
+    cook_time = remaining if remaining else _number(state.get("cookTime"))
     if cook_time_s is not None:
         cook_time = cook_time_s
     return build_circulator_program(
@@ -256,7 +298,9 @@ def build_csj_manual_steps(
     """Recipe steps for a manual Joule cook (getCSJ100ManualCookSteps).
 
     Without a cook time the Joule holds the temperature until stopped. With
-    one, it waits after preheat for the food to go in unless auto_start_timer.
+    one, it waits after preheat for the food to go in. It ignores
+    defaultAutostart: the app arms the timer with a second request,
+    auto_start_update, once the cook has started.
     """
     temp = _checked_temp(set_point_c)
     phase: dict[str, Any] = {"mode": MODE_SOUS_VIDE, "temperatureCelsius": temp}
@@ -274,6 +318,22 @@ def build_csj_manual_steps(
             "type": STEP_TYPE_SOUS_VIDE,
         }
     ]
+
+
+UPDATE_AUTO_START_TIMER = "autoStartTimer"
+
+
+def auto_start_update(on: bool = True) -> dict[str, Any]:
+    """The update-cook update that starts a cook's timer at temperature.
+
+    The app sends it right after starting a Joule cook with Start timer
+    automatically on (useStartManualCook), as {model, step: 0, updates: [this],
+    uuid: ""}. The value is the app's AutoStart enum, the number 1 or 0. The
+    boolean true got HTTP 400 "Invalid update type" from the cloud. Sent while
+    preheating, 1 sets dropFoodTimestamp, and the Joule starts its timer as
+    soon as it's at temperature (both verified).
+    """
+    return {"name": UPDATE_AUTO_START_TIMER, "value": 1 if on else 0}
 
 
 def csj_firmware(state: dict[str, Any]) -> dict[str, Any]:
@@ -310,7 +370,7 @@ def parse_message(msg: Any) -> StateUpdate | None:
         state = msg["data"]
     else:
         return None
-    if not serial or not isinstance(state, dict):
+    if not isinstance(serial, str) or not serial or not isinstance(state, dict):
         return None
     version = msg.get("version")
     try:
@@ -364,7 +424,7 @@ class BrevilleClient:
     async def _token_request(self, body: dict[str, Any]) -> dict[str, Any]:
         ep = self._endpoints
         async with self._session.post(
-            ep.token_url, json={"client_id": ep.client_id, **body}
+            ep.token_url, json={"client_id": ep.client_id, **body}, timeout=REQUEST_TIMEOUT
         ) as resp:
             data = await _read_body(resp)
             if resp.status == 200 and isinstance(data, dict):
@@ -381,12 +441,16 @@ class BrevilleClient:
         previous = self._tokens
         if "id_token" not in data:
             raise BrevilleAuthError("Token response did not include an id_token")
-        self._tokens = Tokens(
+        tokens = Tokens(
             id_token=data["id_token"],
             refresh_token=data.get("refresh_token")
             or (previous.refresh_token if previous else None),
             access_token=data.get("access_token"),
         )
+        # Every call needs the user ID, so a token without one is no login:
+        # user_id raises BrevilleAuthError before the token is kept.
+        tokens.user_id
+        self._tokens = tokens
         if self._on_tokens_updated:
             self._on_tokens_updated(self._tokens)
         return self._tokens
@@ -418,12 +482,20 @@ class BrevilleClient:
         )
         return self._store_tokens(data)
 
-    async def id_token(self, *, force_refresh: bool = False) -> str:
-        """Return a valid id_token, refreshing it when close to expiry."""
+    async def id_token(
+        self, *, force_refresh: bool = False, replacing: str | None = None
+    ) -> str:
+        """Return a valid id_token, refreshing it when close to expiry.
+
+        With `replacing`, the token that was rejected, a forced refresh only
+        happens while that's still the current one: requests rejected together
+        refresh once.
+        """
         async with self._refresh_lock:
             if not self._tokens:
                 raise BrevilleAuthError("Not logged in")
-            if force_refresh or self._tokens.expires_within(300):
+            stale = force_refresh and replacing in (None, self._tokens.id_token)
+            if stale or self._tokens.expires_within(300):
                 await self.refresh()
             return self._tokens.id_token
 
@@ -440,14 +512,14 @@ class BrevilleClient:
             "Authorization": f"Bearer {token}",
             "app": self._endpoints.app_channel,
         }
-        kwargs: dict[str, Any] = {"headers": headers}
+        kwargs: dict[str, Any] = {"headers": headers, "timeout": REQUEST_TIMEOUT}
         if body is not None:
             kwargs["json"] = body
         # Path IDs (serial, user) stay out of the log: only the last segment.
         record: dict[str, Any] = {
             "at": datetime.now(UTC).isoformat(timespec="seconds"),
             "method": method,
-            "endpoint": url.rsplit("/", 1)[-1],
+            "endpoint": _endpoint(url),
             "body": body,
         }
         self._request_log.append(record)
@@ -461,9 +533,12 @@ class BrevilleClient:
         record["status"] = status
         if method != "GET":  # GET responses are account details, not command results
             record["response"] = data
-        if status == 401 and _retry:
-            await self.id_token(force_refresh=True)
-            return await self.request(method, url, body, _retry=False)
+        if status == 401:
+            if _retry:
+                await self.id_token(force_refresh=True, replacing=token)
+                return await self.request(method, url, body, _retry=False)
+            # Still rejected with a fresh token: the login itself is no longer accepted.
+            raise BrevilleAuthError(f"{method} {_endpoint(url)} rejected after refreshing the login")
         if status >= 400:
             raise BrevilleApiError(method, url, status, data)
         return data
@@ -473,9 +548,13 @@ class BrevilleClient:
         await self.id_token()
         url = f"{self._endpoints.user_api}/v2/user/{self._tokens.user_id}/appliances"
         data = await self.request("GET", url) or {}
+        if not isinstance(data, dict):
+            raise BrevilleError("The appliance list came back in an unexpected format")
+        appliances, owned = data.get("appliances"), data.get("ownedModels")
         return {
-            "appliances": data.get("appliances") or [],
-            "ownedModels": data.get("ownedModels") or [],
+            "appliances": [a for a in appliances if isinstance(a, dict)]
+            if isinstance(appliances, list) else [],
+            "ownedModels": owned if isinstance(owned, list) else [],
         }
 
     def appliance_url(self, serial: str, action: str) -> str:
@@ -608,21 +687,33 @@ class ApplianceSocket:
         self._session = session
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._keepalive: asyncio.Task[None] | None = None
+        # Last message sent or received, and last received.
         self._last_activity = 0.0
+        self._last_received = 0.0
+        # Whether the cloud has answered a ping on this connection.
+        self._answers_pings = False
 
     @property
     def connected(self) -> bool:
         return self._ws is not None and not self._ws.closed
 
+    @property
+    def answers_pings(self) -> bool:
+        """Whether the cloud has answered a ping on this connection, so a drop is noticed."""
+        return self._answers_pings
+
     async def connect(self) -> None:
         url = self._client.endpoints.websocket
+        token: str | None = None
         for attempt in (1, 2):
-            token = await self._client.id_token(force_refresh=attempt == 2)
+            token = await self._client.id_token(force_refresh=attempt == 2, replacing=token)
             try:
-                self._ws = await self._session.ws_connect(
-                    url,
-                    headers={"sf-id-token": token, "Authorization": f"Bearer {token}"},
-                )
+                # ws_connect doesn't apply a timeout of its own to the handshake.
+                async with asyncio.timeout(REQUEST_TIMEOUT.total):
+                    self._ws = await self._session.ws_connect(
+                        url,
+                        headers={"sf-id-token": token, "Authorization": f"Bearer {token}"},
+                    )
                 break
             except aiohttp.WSServerHandshakeError as err:
                 if err.status == 401 and attempt == 1:
@@ -630,7 +721,7 @@ class ApplianceSocket:
                 if err.status in (401, 403):
                     raise BrevilleAuthError(f"Websocket rejected: {err.status}") from err
                 raise BrevilleApiError("GET", url, err.status, err.message) from err
-        self._last_activity = time.monotonic()
+        self._last_activity = self._last_received = time.monotonic()
         self._keepalive = asyncio.create_task(self._keepalive_loop())
 
     async def _send(self, payload: dict[str, Any]) -> None:
@@ -652,34 +743,70 @@ class ApplianceSocket:
     async def unsubscribe(self, serial: str) -> None:
         await self._send({"action": "removeAppliance", "serialNumber": serial})
 
+    async def ping(self) -> None:
+        await self._send({"action": "ping"})
+
     async def _keepalive_loop(self) -> None:
+        # The first check pings even on a busy connection, whose quiet spells
+        # might never last long enough: a pong is what arms the check below.
+        first = True
         while self.connected:
             await asyncio.sleep(WS_IDLE_CHECK_INTERVAL)
-            if time.monotonic() - self._last_activity >= WS_PING_AFTER_IDLE:
+            now = time.monotonic()
+            if self._answers_pings and now - self._last_received >= WS_DEAD_AFTER:
+                # It answered pings before and has stopped: the connection is
+                # gone. Closing ends messages(), so the caller reconnects. A
+                # cloud that never answers pings is left alone.
+                _LOGGER.debug("No reply from the cloud for %.0f s; closing the websocket",
+                              now - self._last_received)
                 with contextlib.suppress(Exception):
-                    await self._send({"action": "ping"})
+                    await self._ws.close()
+                return
+            if first or now - self._last_activity >= WS_PING_AFTER_IDLE:
+                first = False
+                with contextlib.suppress(Exception):
+                    await self.ping()
 
     async def messages(self) -> AsyncIterator[Any]:
         """Yield decoded messages until the socket closes."""
         if not self._ws:
             raise BrevilleError("Websocket is not connected")
         async for msg in self._ws:
-            self._last_activity = time.monotonic()
+            self._last_activity = self._last_received = time.monotonic()
             if msg.type == aiohttp.WSMsgType.TEXT:
                 try:
-                    yield json.loads(msg.data)
+                    data = json.loads(msg.data)
                 except ValueError:
-                    yield msg.data
+                    data = msg.data
+                if _is_pong(data) and not self._answers_pings:
+                    self._answers_pings = True
+                    _LOGGER.debug("The cloud answers pings: a dropped connection will be noticed")
+                yield data
             elif msg.type == aiohttp.WSMsgType.BINARY:
                 yield msg.data
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 break
 
     async def close(self) -> None:
+        cancelled: asyncio.CancelledError | None = None
         if self._keepalive:
             self._keepalive.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self._keepalive
+            except asyncio.CancelledError as err:
+                # The keepalive's own cancellation, unless this task is being
+                # cancelled too: then pass it on, once the socket is closed.
+                if (task := asyncio.current_task()) is not None and task.cancelling():
+                    cancelled = err
             self._keepalive = None
         if self._ws and not self._ws.closed:
             await self._ws.close()
+        if cancelled is not None:
+            raise cancelled
+
+
+def _is_pong(message: Any) -> bool:
+    """The cloud's answer to {"action": "ping"}."""
+    if isinstance(message, dict):
+        return message.get("messageType") == "pong"
+    return isinstance(message, str) and message.strip().lower() == "pong"

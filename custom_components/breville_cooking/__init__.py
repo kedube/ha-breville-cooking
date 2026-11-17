@@ -130,7 +130,13 @@ async def async_remove_config_entry_device(
     hass: HomeAssistant, entry: BrevilleConfigEntry, device: dr.DeviceEntry
 ) -> bool:
     """Allow deleting a device once its appliance has left the account."""
-    coordinator = entry.runtime_data
+    # Home Assistant asks whether or not the entry is set up, and runtime_data
+    # goes with an unload.
+    coordinator: BrevilleCoordinator | None = getattr(entry, "runtime_data", None)
+    if coordinator is None:
+        # There's no telling whether it's still on the account. If it is, its
+        # device comes back once the entry is set up again.
+        return True
     serials = [ident for domain, ident in device.identifiers if domain == DOMAIN]
     if any(
         (appliance := coordinator.appliances.get(serial)) is not None and appliance.on_account

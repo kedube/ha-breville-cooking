@@ -106,6 +106,8 @@
   "reason.untested": "Bediening van de {product} is nog niet getest, dus Home Assistant houdt het apparaat alleen in de gaten.",
   "reason.open_options": "Bediening toestaan in de opties van de integratie",
   "reason.oven_running": "Een lopend kookproces in de oven kun je niet wijzigen. Stop het om de instellingen aan te passen.",
+  "reason.cook_over": "Het kookproces is klaar en kan niet meer worden gewijzigd. Stop het om een nieuw te starten.",
+  "reason.cook_locked": "Op dit apparaat kun je een lopend kookproces niet wijzigen. Stop het om de instellingen aan te passen.",
   "value.until_stopped": "Tot je stopt",
   "value.open": "Open",
   "value.closed": "Gesloten",

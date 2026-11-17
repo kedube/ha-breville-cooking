@@ -32,11 +32,14 @@ SERIAL = "J123456"
 
 
 def make_jwt(sub: str = SUB, exp_in: float = 3600) -> str:
-    def part(obj):
-        raw = base64.urlsafe_b64encode(json.dumps(obj).encode()).decode()
-        return raw.rstrip("=")
+    return jwt_of({"sub": sub, "exp": time.time() + exp_in})
 
-    return f"{part({'alg': 'none'})}.{part({'sub': sub, 'exp': time.time() + exp_in})}.sig"
+
+def jwt_of(claims: object) -> str:
+    def part(obj):
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).decode().rstrip("=")
+
+    return f"{part({'alg': 'none'})}.{part(claims)}.sig"
 
 
 class MockCloud:
@@ -49,6 +52,8 @@ class MockCloud:
         self.valid_token = make_jwt()
         self.reject_next = False
         self.login_error: dict | None = None
+        # How many pings to answer with a pong before going quiet.
+        self.pongs = 0
         app = web.Application()
         app.router.add_post("/oauth/token", self.token)
         app.router.add_get("/user/v2/user/{sub}/appliances", self.appliances)
@@ -119,6 +124,9 @@ class MockCloud:
                         "version": 722,
                     }
                 )
+            elif data["action"] == "ping" and self.pongs > 0:
+                self.pongs -= 1
+                await ws.send_json({"messageType": "pong"})
         return ws
 
 
@@ -222,6 +230,44 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grants[-1], "refresh_token")
         self.assertEqual(self.client.tokens.refresh_token, "r1")  # kept when not rotated
 
+    async def test_401_after_refreshing_needs_a_new_login(self) -> None:
+        """Rejected with a fresh token too: an auth error, so the integration asks to log in."""
+        await self.client.login("me@example.com", "pw")
+        self.cloud.authorized = lambda request: False
+        with self.assertRaises(api.BrevilleAuthError) as err:
+            await self.client.finish_wait(SERIAL, "CSJ100")
+        self.assertNotIn(SERIAL, str(err.exception))
+        grants = [r[3]["grant_type"] for r in self.cloud.requests if r[1] == "/oauth/token"]
+        self.assertEqual(grants, ["http://auth0.com/oauth/grant-type/password-realm", "refresh_token"])
+
+    async def test_requests_rejected_together_refresh_once(self) -> None:
+        await self.client.login("me@example.com", "pw")
+        self.cloud.valid_token = make_jwt()  # the cloud stops accepting the current token
+        results = await asyncio.gather(*(self.client.get_appliances() for _ in range(3)))
+        self.assertTrue(all(len(r["appliances"]) == 1 for r in results))
+        grants = [r[3]["grant_type"] for r in self.cloud.requests if r[1] == "/oauth/token"]
+        self.assertEqual(grants.count("refresh_token"), 1)
+
+    async def test_login_without_a_user_id_is_refused(self) -> None:
+        """Every call needs the token's user ID, so a token without one is never kept."""
+        self.cloud.valid_token = jwt_of({"exp": time.time() + 3600})
+        with self.assertRaises(api.BrevilleAuthError):
+            await self.client.login("me@example.com", "pw")
+        self.assertIsNone(self.client.tokens)
+        self.assertEqual(self.saved, [])
+
+    async def test_appliance_list_in_another_shape(self) -> None:
+        await self.client.login("me@example.com", "pw")
+        with mock.patch.object(self.client, "request", return_value=["not", "a", "dict"]):
+            with self.assertRaises(api.BrevilleError):
+                await self.client.get_appliances()
+        listed = {"appliances": [1, "x", {"serialNumber": SERIAL}], "ownedModels": "CSJ100"}
+        with mock.patch.object(self.client, "request", return_value=listed):
+            self.assertEqual(
+                await self.client.get_appliances(),
+                {"appliances": [{"serialNumber": SERIAL}], "ownedModels": []},
+            )
+
     async def test_expired_token_refreshes_before_request(self) -> None:
         self.client = api.BrevilleClient(
             self.session,
@@ -299,6 +345,21 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["reason"], 1)
         self.assertEqual(body["firmware"], {"commFirmware": "52", "ctrlFirmware": "123"})
 
+    async def test_arm_auto_start(self) -> None:
+        """The app's second request for a Joule cook: the number 1, not true (HTTP 400)."""
+        await self.client.login("me@example.com", "pw")
+        await self.client.update_cook(SERIAL, "CSJ100", [api.auto_start_update()], uuid="", step=0)
+        _, path, headers, body = self.cloud.requests[-1]
+        self.assertEqual(path, f"/appliance/v1/appliances/{SERIAL}/update-cook")
+        self.assertEqual(
+            body,
+            {"model": "CSJ100", "step": 0, "updates": [{"name": "autoStartTimer", "value": 1}], "uuid": ""},
+        )
+        self.assertIs(type(body["updates"][0]["value"]), int)
+        self.assertEqual(headers["Authorization"], f"Bearer {headers['sf-id-token']}")
+        off = api.auto_start_update(False)["value"]
+        self.assertEqual((off, type(off)), (0, int))
+
     async def test_websocket_subscribe_and_keepalive(self) -> None:
         await self.client.login("me@example.com", "pw")
         sock = self.client.websocket()
@@ -318,6 +379,122 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn({"action": "ping"}, self.cloud.ws_messages)
         self.assertEqual(self.cloud.ws_headers["sf-id-token"], self.cloud.valid_token)
+
+    async def _messages_until_closed(self, timeout: float) -> list:
+        """Messages received until the client closes the socket, or None at the timeout."""
+        sock = self.client.websocket()
+        await sock.connect()
+        received: list = []
+
+        async def read() -> None:
+            async for msg in sock.messages():
+                received.append(msg)
+
+        try:
+            await asyncio.wait_for(read(), timeout)
+        except TimeoutError:
+            received = None
+        await sock.close()
+        return received
+
+    async def test_websocket_closes_when_pongs_stop(self) -> None:
+        """A connection that answered pings and went quiet has dropped without closing."""
+        await self.client.login("me@example.com", "pw")
+        self.cloud.pongs = 1
+        with mock.patch.multiple(
+            api, WS_PING_AFTER_IDLE=0.1, WS_IDLE_CHECK_INTERVAL=0.02, WS_DEAD_AFTER=0.4
+        ):
+            received = await self._messages_until_closed(timeout=3)
+        self.assertEqual(received, [{"messageType": "pong"}])
+
+    async def test_websocket_without_pongs_stays_open(self) -> None:
+        """A cloud that never answers pings is left connected."""
+        await self.client.login("me@example.com", "pw")
+        with mock.patch.multiple(
+            api, WS_PING_AFTER_IDLE=0.1, WS_IDLE_CHECK_INTERVAL=0.02, WS_DEAD_AFTER=0.2
+        ):
+            self.assertIsNone(await self._messages_until_closed(timeout=1))
+        self.assertIn({"action": "ping"}, self.cloud.ws_messages)
+
+    async def test_first_check_pings_a_busy_connection(self) -> None:
+        """A pong arms the drop check, so it's asked for even before 15 quiet seconds."""
+        await self.client.login("me@example.com", "pw")
+        self.cloud.pongs = 1
+        sock = self.client.websocket()
+        with mock.patch.multiple(api, WS_PING_AFTER_IDLE=100, WS_IDLE_CHECK_INTERVAL=0.05):
+            await sock.connect()
+            await sock.subscribe(SERIAL, "CSJ100")
+            messages = sock.messages()
+            await asyncio.wait_for(anext(messages), 2)  # the stateReport
+            self.assertEqual(await asyncio.wait_for(anext(messages), 2), {"messageType": "pong"})
+            await asyncio.sleep(0.2)
+            self.assertTrue(sock.answers_pings)
+            await sock.close()
+        self.assertEqual(self.cloud.ws_messages.count({"action": "ping"}), 1)
+
+    async def test_close_passes_on_its_own_cancellation(self) -> None:
+        """Cancelled while it waits for the keepalive, close() doesn't swallow that."""
+        sock = self.client.websocket()
+        sock._keepalive = asyncio.create_task(asyncio.sleep(10))
+        closing = asyncio.create_task(sock.close())
+        await asyncio.sleep(0)  # close() is waiting for the keepalive to finish
+        closing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await closing
+
+
+@pytest.mark.usefixtures("socket_enabled")  # local mock server
+class TimeoutTest(unittest.IsolatedAsyncioTestCase):
+    """A cloud that doesn't answer: calls give up instead of waiting aiohttp's 5 minutes."""
+
+    async def asyncSetUp(self) -> None:
+        self.release = asyncio.Event()
+
+        async def hang(request: web.Request) -> web.Response:
+            await self.release.wait()
+            return web.json_response({})
+
+        app = web.Application()
+        app.router.add_post("/oauth/token", hang)
+        app.router.add_get("/user/v2/user/{sub}/appliances", hang)
+        app.router.add_get("/ws", hang)
+        self.server = TestServer(app)
+        await self.server.start_server()
+        base = str(self.server.make_url("")).rstrip("/")
+        self.session = aiohttp.ClientSession()
+        self.client = api.BrevilleClient(
+            self.session,
+            api.Tokens(make_jwt(), "r1"),
+            endpoints=api.Endpoints(
+                token_url=f"{base}/oauth/token",
+                user_api=f"{base}/user",
+                websocket=f"{base.replace('http', 'ws', 1)}/ws",
+            ),
+        )
+        patcher = mock.patch.object(api, "REQUEST_TIMEOUT", aiohttp.ClientTimeout(total=0.2))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    async def asyncTearDown(self) -> None:
+        self.release.set()
+        await self.session.close()
+        await self.server.close()
+
+    async def assert_gives_up(self, call) -> None:
+        start = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            # A backstop well past the patched timeout, so the test can't hang.
+            await asyncio.wait_for(call, 5)
+        self.assertLess(time.monotonic() - start, 2)
+
+    async def test_request(self) -> None:
+        await self.assert_gives_up(self.client.get_appliances())
+
+    async def test_token_refresh(self) -> None:
+        await self.assert_gives_up(self.client.refresh())
+
+    async def test_websocket_handshake(self) -> None:
+        await self.assert_gives_up(self.client.websocket().connect())
 
 
 class ProgramTest(unittest.TestCase):
@@ -345,6 +522,35 @@ class ProgramTest(unittest.TestCase):
         self.assertEqual(api.build_csj_edit_program(state)["cookTime"], 60)
         with self.assertRaises(ValueError):
             api.build_csj_edit_program(IDLE_STATE)
+
+    def test_no_edit_after_timer_ran_out(self) -> None:
+        """Verified on a Joule: it reports the new setPoint but holds the old temperature."""
+        state = dict(COOKING_POINT["data"], programStep=4, timeRemaining=0)
+        for change in ({"set_point_c": 40}, {"cook_time_s": 600}):
+            with self.assertRaises(ValueError):
+                api.build_csj_edit_program(state, **change)
+
+    def test_edit_with_malformed_fields(self) -> None:
+        """A ValueError, which the coordinator reports, rather than a TypeError."""
+        for fields in ({"setPoint": "hot"}, {"setPoint": float("nan")}):
+            with self.assertRaises(ValueError):
+                api.build_csj_edit_program(dict(COOKING_POINT["data"], **fields))
+        # A time of the wrong type reads as none: the cook holds.
+        state = dict(COOKING_POINT["data"], timeRemaining="soon", cookTime=[60])
+        self.assertNotIn("cookTime", api.build_csj_edit_program(state))
+
+    def test_malformed_tokens(self) -> None:
+        for token in (None, "nodots", jwt_of(["a", "list"]), jwt_of({"sub": 5})):
+            with self.assertRaises(api.BrevilleAuthError):
+                api.Tokens(token).user_id
+        # A token that doesn't say when it expires is refreshed.
+        self.assertEqual(api.Tokens(jwt_of({"sub": SUB, "exp": "soon"})).expires_at, 0.0)
+
+    def test_api_error_leaves_out_path_ids(self) -> None:
+        err = api.BrevilleApiError(
+            "POST", f"https://iot-api.breville.com/appliance/v1/appliances/{SERIAL}/stop-recipe", 500, {}
+        )
+        self.assertEqual(str(err), "POST stop-recipe -> HTTP 500: {}")
 
     def test_state_from_message_ignores_other_types(self) -> None:
         self.assertIsNone(api.state_from_message({"messageType": "syncCookHistoryReport", "data": {}}))

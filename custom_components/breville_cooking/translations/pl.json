@@ -313,6 +313,21 @@
     },
     "stop_cook_first": {
       "message": "Zatrzymaj gotowanie przed zmianą tego ustawienia."
+    },
+    "cook_over": {
+      "message": "Gotowanie się zakończyło, więc nie można go zmienić. Zatrzymaj je, aby rozpocząć kolejne."
+    },
+    "temperature_out_of_range": {
+      "message": "Temperatura tego gotowania musi mieścić się w zakresie od {min} do {max}."
+    },
+    "duration_out_of_range": {
+      "message": "Czas gotowania musi mieścić się w zakresie od {min} do {max} minut."
+    },
+    "temperature_not_for_mode": {
+      "message": "Ten tryb gotuje na określonym poziomie, a nie w określonej temperaturze."
+    },
+    "cook_running": {
+      "message": "Gotowanie już trwa. Zatrzymaj je, zanim rozpoczniesz kolejne."
     }
   }
 }

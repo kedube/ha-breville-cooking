@@ -8,11 +8,13 @@ from collections.abc import Awaitable
 import contextlib
 from dataclasses import dataclass, field
 import logging
+import time
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
@@ -22,25 +24,33 @@ from homeassistant.exceptions import (
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .api import (
     ApplianceSocket,
     BrevilleAuthError,
     BrevilleClient,
     BrevilleError,
+    MODEL_CSJ100,
     StopRecipeReason,
+    auto_start_update,
     parse_message,
 )
 from .appliance import (
     FINISH_WAIT_MODELS,
     MODELS,
     ApplianceStatus,
+    AutoStart,
+    AutoStartAction,
     CookSettings,
+    CookState,
+    LimitProblem,
     StateTracker,
     build_edit,
     build_finish_wait,
     build_manual_steps,
     build_next_step,
+    cook_limit_problem,
     default_settings,
     firmware_for,
     parse_status,
@@ -62,6 +72,9 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 _T = TypeVar("_T")
+
+# Seconds a cook stays Ready for food before Start timer automatically presses Continue.
+AUTO_START_GRACE_S = 3.0
 
 
 def sidebar_panel_enabled(entry: ConfigEntry) -> bool:
@@ -86,6 +99,8 @@ class Appliance:
     messages: deque[dict[str, Any]] = field(
         default_factory=lambda: deque(maxlen=MESSAGE_LOG_SIZE)
     )
+    # A cook Home Assistant started whose timer it starts itself (see AutoStart).
+    auto_start: AutoStart | None = None
 
 
 class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
@@ -106,9 +121,15 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         self.client = client
         self.appliances: dict[str, Appliance] = {}
         self.connected = False
+        # While listeners hear of one appliance's new state, its serial: other
+        # appliances' entities have nothing to update.
+        self.updating_serial: str | None = None
         self._tracker = StateTracker()
         self._socket: ApplianceSocket | None = None
         self._unsupported: set[str] = set()
+        # A message that couldn't be read is logged in full once: a field that
+        # breaks parsing tends to come back in every message after it.
+        self._message_error_logged = False
 
     async def _async_update_data(self) -> dict[str, Appliance]:
         try:
@@ -122,7 +143,7 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         listed: set[str] = set()
         for raw in result["appliances"]:
             serial, model = raw.get("serialNumber"), raw.get("model")
-            if not serial:
+            if not isinstance(serial, str) or not serial or not isinstance(model, str):
                 continue
             if model not in MODELS:
                 if serial not in self._unsupported:
@@ -142,9 +163,14 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         # then be deleted (async_remove_config_entry_device).
         for serial, appliance in self.appliances.items():
             appliance.on_account = serial in listed
-        if added and self._socket is not None and self._socket.connected:
+        if added and (socket := self._socket) is not None and socket.connected:
             for appliance in added:
-                await self._socket.subscribe(appliance.serial, appliance.model)
+                # A failure means the socket is going down, and the reconnect
+                # subscribes every appliance: it mustn't fail the refresh.
+                with contextlib.suppress(
+                    BrevilleError, aiohttp.ClientError, ConnectionError, TimeoutError
+                ):
+                    await socket.subscribe(appliance.serial, appliance.model)
         return self.appliances
 
     async def async_remove_appliance(self, serial: str) -> None:
@@ -175,13 +201,13 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
                 for appliance in list(self.appliances.values()):
                     await socket.subscribe(appliance.serial, appliance.model)
                 async for msg in socket.messages():
-                    self._handle_message(msg)
-                _LOGGER.debug("Websocket closed by the server")
+                    self._safely_handle_message(msg)
+                _LOGGER.debug("Websocket closed")
             except BrevilleAuthError:
                 _LOGGER.warning("Breville session expired; re-authentication required")
                 self.config_entry.async_start_reauth(self.hass)
                 return
-            except (BrevilleError, aiohttp.ClientError, TimeoutError) as err:
+            except (BrevilleError, aiohttp.ClientError, ConnectionError, TimeoutError) as err:
                 _LOGGER.debug("Websocket error: %s", err)
             except Exception:  # keep the live connection alive whatever happens
                 _LOGGER.exception("Unexpected error in the Breville websocket")
@@ -192,6 +218,11 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
             await asyncio.sleep(delay)
             delay = min(delay * WS_RECONNECT_FACTOR, WS_RECONNECT_MAX)
 
+    @property
+    def answers_pings(self) -> bool:
+        """Whether the cloud answers pings on the current connection, so a drop is noticed."""
+        return self._socket is not None and self._socket.answers_pings
+
     @callback
     def _set_connected(self, connected: bool) -> None:
         if self.connected != connected:
@@ -199,11 +230,31 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
             self.async_update_listeners()
 
     @callback
+    def _safely_handle_message(self, msg: Any) -> None:
+        """Handle a message, ignoring one that can't be read.
+
+        One appliance's malformed message mustn't end the connection, which
+        would take every appliance on the account offline, and again with the
+        full report on every reconnect if the field stays in the shadow.
+        """
+        try:
+            self._handle_message(msg)
+        except Exception:
+            if not self._message_error_logged:
+                self._message_error_logged = True
+                _LOGGER.exception(
+                    "Ignoring a message from Breville's cloud that couldn't be read;"
+                    " later ones are logged at debug level"
+                )
+            else:
+                _LOGGER.debug("Ignoring a message that couldn't be read", exc_info=True)
+
+    @callback
     def _handle_message(self, msg: Any) -> None:
         # Keep every message for the appliance, even ones that are ignored or
         # out of date: the sequence is what diagnostics are for.
         serial = msg.get("serialNumber") if isinstance(msg, dict) else None
-        if (logged := self.appliances.get(serial)) is not None:
+        if isinstance(serial, str) and (logged := self.appliances.get(serial)) is not None:
             logged.messages.append(
                 {"at": dt_util.utcnow().isoformat(timespec="seconds"), "message": msg}
             )
@@ -217,7 +268,48 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         appliance.status = parse_status(appliance.model, appliance.state, previous=appliance.status)
         if appliance.status.firmware and appliance.status.firmware != firmware:
             self._update_sw_version(appliance)
-        self.async_update_listeners()
+        self._check_auto_start(appliance)
+        self.updating_serial = appliance.serial
+        try:
+            self.async_update_listeners()
+        finally:
+            self.updating_serial = None
+
+    @callback
+    def _check_auto_start(self, appliance: Appliance) -> None:
+        """Press Continue for a cook that should have started its timer by itself."""
+        if (auto := appliance.auto_start) is None:
+            return
+        action = auto.step(appliance.status, time.monotonic())
+        if action is AutoStartAction.WAIT:
+            return
+        appliance.auto_start = None
+        if action is AutoStartAction.PRESS:
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self._auto_continue(appliance, auto.cook_id),
+                f"{DOMAIN} start timer automatically",
+            )
+
+    async def _auto_continue(self, appliance: Appliance, cook_id: str | None) -> None:
+        # A moment's grace: an appliance that starts its own timer could report
+        # Ready for food first.
+        await asyncio.sleep(AUTO_START_GRACE_S)
+        status = appliance.status
+        if (
+            status.state is not CookState.READY
+            or status.cook_id != cook_id
+            or self.appliances.get(appliance.serial) is not appliance
+        ):
+            return
+        _LOGGER.debug("At temperature: starting the timer, as Start timer automatically is on")
+        try:
+            await self.async_finish_wait(appliance)
+        except HomeAssistantError as err:
+            _LOGGER.warning(
+                "Couldn't start the %s's timer automatically; press Continue: %s",
+                appliance.name or MODELS[appliance.model].product, err,
+            )
 
     @callback
     def _update_sw_version(self, appliance: Appliance) -> None:
@@ -249,25 +341,64 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         self, appliance: Appliance, settings: CookSettings | None = None
     ) -> None:
         self._ensure_control_allowed(appliance)
+        settings = settings or appliance.settings
+        if (problem := cook_limit_problem(appliance.model, settings)) is not None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key=problem.key,
+                translation_placeholders=self._limit_placeholders(problem),
+            )
         try:
-            steps = build_manual_steps(appliance.model, settings or appliance.settings)
+            steps = build_manual_steps(appliance.model, settings)
         except ValueError as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="start_failed",
                 translation_placeholders={"error": str(err)},
             ) from err
-        await self._call(
-            self.client.load_manual_recipe(
-                appliance.serial,
-                appliance.model,
-                firmware_for(appliance.model, appliance.state),
-                steps,
-                locale=self._locale(),
-            )
+        # The steps ask for it too, but a Joule ignores that. Like the app, a
+        # second request arms its timer. Should a sous vide still wait for the
+        # food, Continue is pressed for it (finish-wait).
+        appliance.auto_start = (
+            AutoStart(time.monotonic())
+            if settings.auto_start_timer and appliance.model in FINISH_WAIT_MODELS
+            else None
         )
+        try:
+            await self._call(
+                self.client.load_manual_recipe(
+                    appliance.serial,
+                    appliance.model,
+                    firmware_for(appliance.model, appliance.state),
+                    steps,
+                    locale=self._locale(),
+                )
+            )
+        except HomeAssistantError:
+            appliance.auto_start = None
+            raise
+        if settings.auto_start_timer and appliance.model == MODEL_CSJ100:
+            await self._arm_auto_start(appliance)
+
+    async def _arm_auto_start(self, appliance: Appliance) -> None:
+        """The app's second request for a Joule cook: start the timer at temperature.
+
+        The cook has started either way, so a failure is only logged; Continue
+        is pressed for it if it waits for the food.
+        """
+        try:
+            await self.client.update_cook(
+                appliance.serial, appliance.model, [auto_start_update()], uuid="", step=0
+            )
+        except (BrevilleError, aiohttp.ClientError, TimeoutError) as err:
+            _LOGGER.warning(
+                "The %s didn't take Start timer automatically, so Continue will be "
+                "pressed for it at temperature: %s",
+                appliance.name or MODELS[appliance.model].product, err,
+            )
 
     async def async_stop_cook(self, appliance: Appliance) -> None:
+        appliance.auto_start = None
         await self._call(
             self.client.stop_recipe(
                 appliance.serial,
@@ -315,6 +446,11 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
         duration_s: int | None = None,
     ) -> None:
         self._ensure_control_allowed(appliance)
+        if appliance.status.state is CookState.DONE:
+            # A Joule whose timer had run out showed the new setpoint but held
+            # the old temperature. The Joule Turbo hasn't been tried, so it's
+            # treated the same rather than show a target nobody heats to.
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="cook_over")
         if not MODELS[appliance.model].can_edit_cook:
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="stop_cook_first"
@@ -356,6 +492,18 @@ class BrevilleCoordinator(DataUpdateCoordinator[dict[str, Appliance]]):
                 translation_key="request_failed",
                 translation_placeholders={"error": str(err)},
             ) from err
+
+    def _limit_placeholders(self, problem: LimitProblem) -> dict[str, str]:
+        """The limits as the error shows them: minutes, or degrees in Home Assistant's unit."""
+        if problem.key == "duration_out_of_range":
+            return {"min": str(int(problem.low) // 60), "max": str(int(problem.high) // 60)}
+        unit = self.hass.config.units.temperature_unit
+
+        def degrees(celsius: float) -> str:
+            value = TemperatureConverter.convert(celsius, UnitOfTemperature.CELSIUS, unit)
+            return f"{round(value, 1):g} {unit}"
+
+        return {"min": degrees(problem.low), "max": degrees(problem.high)}
 
     def _locale(self) -> str:
         language = self.hass.config.language or "en"

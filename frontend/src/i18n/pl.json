@@ -106,6 +106,8 @@
   "reason.untested": "Sterowanie urządzeniem {product} nie zostało jeszcze przetestowane, więc Home Assistant tylko je monitoruje.",
   "reason.open_options": "Zezwól na sterowanie w opcjach integracji",
   "reason.oven_running": "Trwającego gotowania w piekarniku nie można zmienić. Zatrzymaj je, aby zmienić ustawienia.",
+  "reason.cook_over": "Gotowanie się zakończyło, więc nie można go zmienić. Zatrzymaj je, aby rozpocząć kolejne.",
+  "reason.cook_locked": "Na tym urządzeniu nie można zmienić trwającego gotowania. Zatrzymaj je, aby zmienić ustawienia.",
   "value.until_stopped": "Do zatrzymania",
   "value.open": "Otwarte",
   "value.closed": "Zamknięte",

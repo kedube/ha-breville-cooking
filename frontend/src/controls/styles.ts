@@ -191,7 +191,6 @@ export const controlStyles = css`
     line-height: 1.2;
     text-align: center;
     cursor: pointer;
-    user-select: none;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
     transition: background-color 0.15s, color 0.15s;
@@ -310,6 +309,17 @@ export const controlStyles = css`
   .switch[aria-disabled="true"] {
     opacity: 0.5;
     cursor: default;
+  }
+
+  /* Controls aren't text to select. Pressed quickly, as − and + are, a button gets a double
+     click, which in Safari and the Home Assistant app on a Mac (WebKit) selected the nearest
+     words of the label. WebKit only knows the prefixed property. */
+  .stepper,
+  .segmented,
+  .switch,
+  .tile {
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   /* Minus, the value, plus. */

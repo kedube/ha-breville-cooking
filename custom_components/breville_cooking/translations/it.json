@@ -313,6 +313,21 @@
     },
     "stop_cook_first": {
       "message": "Interrompi la cottura prima di modificare questa impostazione."
+    },
+    "cook_over": {
+      "message": "La cottura è terminata, quindi non si può modificare. Interrompila per avviarne un'altra."
+    },
+    "temperature_out_of_range": {
+      "message": "La temperatura di questa cottura deve essere compresa tra {min} e {max}."
+    },
+    "duration_out_of_range": {
+      "message": "Il tempo di cottura deve essere compreso tra {min} e {max} minuti per questa cottura."
+    },
+    "temperature_not_for_mode": {
+      "message": "Questa modalità cuoce a un livello, non a una temperatura."
+    },
+    "cook_running": {
+      "message": "C'è già una cottura in corso. Interrompila prima di avviarne un'altra."
     }
   }
 }

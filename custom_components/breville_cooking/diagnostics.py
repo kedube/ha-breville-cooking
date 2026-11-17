@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from . import BrevilleConfigEntry
 from .api import BrevilleAuthError, decode_jwt_claims
 from .appliance import MODELS
-from .coordinator import sidebar_panel_enabled
+from .coordinator import BrevilleCoordinator, sidebar_panel_enabled
 from .frontend import panel_module_url, registered_title
 from .panel_api import async_panel_diagnostics
 from .panel_spec import detect_finish
@@ -102,7 +102,9 @@ class Redactor:
         return self(value)
 
 
-def personal_values(entry: BrevilleConfigEntry) -> list[str]:
+def personal_values(
+    entry: BrevilleConfigEntry, coordinator: BrevilleCoordinator | None = None
+) -> list[str]:
     """Values that identify the account holder or their appliances."""
     values = [entry.data.get(CONF_EMAIL), entry.unique_id, entry.title]
     try:
@@ -114,7 +116,8 @@ def personal_values(entry: BrevilleConfigEntry) -> list[str]:
         for claim, value in claims.items()
         if claim not in TECHNICAL_CLAIMS and isinstance(value, str)
     ]
-    for appliance in entry.runtime_data.appliances.values():
+    appliances = coordinator.appliances.values() if coordinator is not None else ()
+    for appliance in appliances:
         values += [appliance.serial, appliance.name]
         # The appliance's own state names it too: a BOV950's name is its serial.
         values += [appliance.state.get("serialNumber"), appliance.state.get("name")]
@@ -124,13 +127,18 @@ def personal_values(entry: BrevilleConfigEntry) -> list[str]:
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: BrevilleConfigEntry
 ) -> dict[str, Any]:
-    coordinator = entry.runtime_data
-    redact = Redactor(personal_values(entry))
+    # Downloadable while setup fails too, when it's most wanted; runtime_data
+    # only exists while the entry is set up.
+    coordinator: BrevilleCoordinator | None = getattr(entry, "runtime_data", None)
+    redact = Redactor(personal_values(entry, coordinator))
     return {
         "entry": redact(dict(entry.data)),
         "options": redact(dict(entry.options)),
-        "websocket_connected": coordinator.connected,
-        "recent_requests": redact(coordinator.client.recent_requests),
+        "state": entry.state.value,
+        "websocket_connected": coordinator is not None and coordinator.connected,
+        # Whether a connection that drops without closing is noticed.
+        "websocket_answers_pings": coordinator is not None and coordinator.answers_pings,
+        "recent_requests": redact(coordinator.client.recent_requests) if coordinator else [],
         "panel": {
             "enabled": sidebar_panel_enabled(entry),
             "registered": panel_module_url(hass) is not None,
@@ -149,6 +157,6 @@ async def async_get_config_entry_diagnostics(
                 "reported": redact(appliance.state),
                 "recent_messages": redact(list(appliance.messages)),
             }
-            for appliance in coordinator.appliances.values()
+            for appliance in (coordinator.appliances.values() if coordinator else ())
         ],
     }

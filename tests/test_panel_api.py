@@ -109,7 +109,8 @@ async def test_the_snapshot_describes_each_appliance(
         "available": False,
         "tested": True,
         "control_allowed": True,
-        "can_edit_cook": True,
+        # Verified: a running Joule cook takes a new setpoint but heats to the old one.
+        "can_edit_cook": False,
         "sensor_target_c": None,
         "limits": {"min_temp_c": 20.0, "max_temp_c": 98.0, "max_cook_s": 345600},
         "entities": registered_entities(hass, entry, JOULE),

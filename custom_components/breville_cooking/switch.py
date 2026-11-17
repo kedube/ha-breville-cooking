@@ -15,7 +15,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from . import BrevilleConfigEntry
-from .appliance import MODEL_BOV950, OVEN_MODES, oven_mode_defaults
+from .appliance import MODEL_BOV950, OVEN_MODES, CookSettings, OvenModeType, oven_mode_defaults
 from .const import (
     ATTR_AUTO_START_TIMER,
     ATTR_CONVECTION,
@@ -65,6 +65,10 @@ class CookSwitch(BrevilleSwitch):
         return self.appliance.status.cooking
 
     async def async_turn_on(self, **kwargs: Any) -> None:
+        # Already on. Home Assistant calls this anyway, and a second start
+        # would replace the running cook with the next cook's settings.
+        if self.appliance.status.cooking:
+            return
         await self.coordinator.async_start_cook(self.appliance)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -73,6 +77,10 @@ class CookSwitch(BrevilleSwitch):
     async def async_start_cook_service(self, **kwargs: Any) -> None:
         """breville_cooking.start_cook: start a cook with explicit settings."""
         appliance = self.appliance
+        if appliance.status.cooking:
+            # As in the app: one cook at a time. Starting another would send a
+            # new recipe to a running appliance, which nobody has tried.
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="cook_running")
         settings = replace(appliance.settings)
         if (mode := kwargs.get(ATTR_MODE)) is not None:
             if appliance.model != MODEL_BOV950:
@@ -107,7 +115,19 @@ class CookSwitch(BrevilleSwitch):
             settings.auto_start_timer = kwargs[ATTR_AUTO_START_TIMER]
         if ATTR_KEEP_WARM in kwargs:
             settings.keep_warm = kwargs[ATTR_KEEP_WARM]
+        if temperature is not None and _cooks_at_a_level(settings):
+            # It would be ignored, and the cook run at the mode's level.
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="temperature_not_for_mode"
+            )
+        # The coordinator refuses a temperature or cook time outside the limits.
         await self.coordinator.async_start_cook(appliance, settings)
+
+
+def _cooks_at_a_level(settings: CookSettings) -> bool:
+    """An oven mode, such as broil, set by level rather than temperature."""
+    mode = OVEN_MODES.get(settings.mode or "")
+    return mode is not None and mode.type is not OvenModeType.TEMP
 
 
 class BrevilleOptionSwitch(BrevilleSwitch, RestoreEntity):

@@ -106,6 +106,8 @@
   "reason.untested": "Die Steuerung des {product} wurde noch nicht getestet, daher überwacht Home Assistant das Gerät nur.",
   "reason.open_options": "Steuerung in den Optionen der Integration erlauben",
   "reason.oven_running": "Ein laufender Garvorgang im Ofen lässt sich nicht ändern. Stoppe ihn, um die Einstellungen zu ändern.",
+  "reason.cook_over": "Der Garvorgang ist beendet und lässt sich nicht mehr ändern. Stoppe ihn, um einen neuen zu starten.",
+  "reason.cook_locked": "Ein laufender Garvorgang lässt sich auf diesem Gerät nicht ändern. Stoppe ihn, um die Einstellungen zu ändern.",
   "value.until_stopped": "Bis zum Stoppen",
   "value.open": "Offen",
   "value.closed": "Geschlossen",

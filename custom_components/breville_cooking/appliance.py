@@ -8,9 +8,12 @@ No Home Assistant imports.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Hashable
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import IntEnum, StrEnum
+import math
+import time
 from typing import Any
 
 from .api import (
@@ -51,14 +54,16 @@ class ModelInfo:
     # are monitor-only unless the user allows control in the options.
     tested: bool = False
     # Whether a running cook's temperature and time can be changed. The app
-    # offers no way to for the oven, which ignored update-cook (issue #1).
+    # offers no way to for the oven, which ignored update-cook (issue #1), or
+    # for the Joule, which took a startProgramRequest's setpoint, and reported
+    # it, but went on heating to the old one.
     can_edit_cook: bool = True
 
 
 MODELS: dict[str, ModelInfo] = {
     MODEL_CSJ100: ModelInfo(
         MODEL_CSJ100, "Joule Sous Vide", "ChefSteps", Kind.SOUS_VIDE,
-        CSJ_MIN_TEMP_C, CSJ_MAX_TEMP_C, 96 * HOUR, tested=True,
+        CSJ_MIN_TEMP_C, CSJ_MAX_TEMP_C, 96 * HOUR, tested=True, can_edit_cook=False,
     ),
     MODEL_BSV600: ModelInfo(
         MODEL_BSV600, "Joule Turbo Sous Vide", "Breville", Kind.SOUS_VIDE,
@@ -352,8 +357,42 @@ class ApplianceStatus:
         return self.cooking and not self.finished
 
 
+# Reported state comes from the cloud and from firmware nobody has seen yet, so
+# reading it never raises: a field of the wrong type reads as missing.
+
+
 def _num(value: Any) -> float | None:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    """A finite number, else None. Booleans aren't numbers here."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:  # an int too big for a float
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _int(value: Any) -> int | None:
+    """A whole number, from a number or a numeric string, else None."""
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            return None
+    number = _num(value)
+    return int(number) if number is not None else None
+
+
+def _key(value: Any) -> Any:
+    """The value, to look up in a dict, or None when it can't be a key (a list, say)."""
+    return value if isinstance(value, Hashable) else None
+
+
+def _text(value: Any) -> str | None:
+    """Text such as a firmware version, which may be reported as a number."""
+    if isinstance(value, str):
+        return value or None
+    return str(value) if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def preheat_progress(current: float | None, target: float | None) -> int | None:
@@ -381,7 +420,10 @@ def oven_preheat_target(sensor_target_c: float) -> float:
 def _ends_at(now: datetime, remaining: int | None) -> datetime | None:
     if not remaining:
         return None
-    end = now + timedelta(seconds=remaining)
+    try:
+        end = now + timedelta(seconds=remaining)
+    except OverflowError:  # past the year 9999: not a real timer
+        return None
     # Round to the minute so the timestamp doesn't change with every update.
     return (end + timedelta(seconds=30)).replace(second=0, microsecond=0)
 
@@ -401,11 +443,11 @@ def parse_status(
 
 def _parse_csj(s: dict[str, Any], now: datetime) -> ApplianceStatus:
     raw_state = str(s.get("state") or "OFFLINE").upper()
-    step = s.get("programStep")
+    step = _key(s.get("programStep"))
     status = ApplianceStatus(
         online=raw_state != "OFFLINE",
         current_temp_c=_num(s.get("bathTemp")),
-        firmware=s.get("firmwareVersion"),
+        firmware=_text(s.get("firmwareVersion")),
         cook_id=s.get("cookId"),
         mode="sous_vide",
     )
@@ -421,14 +463,14 @@ def _parse_csj(s: dict[str, Any], now: datetime) -> ApplianceStatus:
     }.get(step, CookState.IDLE)
     if status.state is not CookState.IDLE or raw_state == "ACTIVE":
         status.target_temp_c = _num(s.get("setPoint"))
-        status.cook_time_s = int(s["cookTime"]) if s.get("cookTime") else None
+        status.cook_time_s = _int(s.get("cookTime")) or None
     if status.state is CookState.COOKING:
-        status.time_remaining_s = int(s.get("timeRemaining") or 0)
+        status.time_remaining_s = _int(s.get("timeRemaining")) or 0
         status.ends_at = _ends_at(now, status.time_remaining_s)
     if status.state is CookState.PREHEATING:
         status.preheat_pct = preheat_progress(status.current_temp_c, status.target_temp_c)
     if s.get("errorState"):
-        reason = s.get("eventReason")
+        reason = _int(s.get("eventReason"))
         status.error = CSJ_EVENT_REASONS.get(reason, "other")
         status.error_code = reason
         status.state = CookState.ERROR
@@ -459,9 +501,9 @@ TIMER_END_SLACK_S = 5
 def _timer_ran_out(timer: dict[str, Any] | None, now: datetime) -> bool:
     if not timer or timer.get("state") != TimerState.RUNNING:
         return False
-    if timer.get("down_from_n") in (None, SKIP_TIMER_VALUE):
+    if _int(timer.get("down_from_n")) in (None, SKIP_TIMER_VALUE):
         return False
-    return _running_remaining(timer, int(timer.get("now") or 0), now) <= TIMER_END_SLACK_S
+    return _running_remaining(timer, _int(timer.get("now")) or 0, now) <= TIMER_END_SLACK_S
 
 
 def _shadow_index(s: dict[str, Any], key: str, short: str) -> Any:
@@ -499,9 +541,9 @@ def _parse_task_engine(
     status = ApplianceStatus(
         online=raw_state != "offline",
         current_temp_c=_num(heater.get("cur_temp", legacy.get("current"))),
-        firmware=firmware.get("host_mcu") or firmware.get("ctrlFirmware"),
+        firmware=_text(firmware.get("host_mcu") or firmware.get("ctrlFirmware")),
         cook_id=s.get("cookUUID"),
-        mode=TASK_ENGINE_MODES.get(appliance.get("mode")),
+        mode=TASK_ENGINE_MODES.get(_key(appliance.get("mode"))),
     )
     step = _shadow_index(s, "currentStep", "stp")
     status.step_index = step if isinstance(step, int) else 0
@@ -518,15 +560,18 @@ def _parse_task_engine(
     if isinstance(motor, int):  # a real BOV950 reports just the number
         status.convection = CONVECTION_STATES.get(motor)
 
-    errors = [e for e in s.get("errors") or [] if isinstance(e, dict)]
+    reported_errors = s.get("errors")
+    errors = (
+        [e for e in reported_errors if isinstance(e, dict)] if isinstance(reported_errors, list) else []
+    )
     if errors:
-        latest = max(errors, key=lambda e: e.get("ts") or 0)
-        status.error_code = latest.get("code")
+        latest = max(errors, key=lambda e: _num(e.get("ts")) or 0)
+        status.error_code = _int(latest.get("code"))
         status.error = ERROR_CODES.get(status.error_code, "other")
 
     if not status.online:
         return status
-    heater_state = heater.get("state")
+    heater_state = _key(heater.get("state"))
     timer = _main_timer(s)
     if raw_state in ("onboarding",) or s.get("onboardingState") in ("notStarted",):
         status.state = CookState.UPDATING
@@ -616,12 +661,13 @@ def _parse_task_engine(
         if seen_cooking:
             status.cook_mode = previous.cook_mode or previous.mode
             status.level = previous.level
-        if timer and timer.get("down_from_n") not in (None, SKIP_TIMER_VALUE):
-            status.cook_time_s = int(timer["down_from_n"])
+        down_from = _int(timer.get("down_from_n")) if timer else None
+        if down_from not in (None, SKIP_TIMER_VALUE):
+            status.cook_time_s = down_from
             if warming:
                 status.cook_time_s = previous.cook_time_s if seen_cooking else None
             if timer.get("state") in (TimerState.RUNNING, TimerState.PAUSED):
-                remaining = int(timer.get("now") or 0)
+                remaining = _int(timer.get("now")) or 0
                 if timer.get("state") == TimerState.RUNNING:
                     remaining = _running_remaining(timer, remaining, now)
                     status.ends_at = _ends_at(now, remaining)
@@ -675,23 +721,35 @@ def deep_merge(base: dict[str, Any], change: dict[str, Any]) -> dict[str, Any]:
 
 
 CSJ_REORDER_WINDOW_MS = 120_000
+# A message older than the newest one applied is a late delivery only when it
+# arrives within this long of it. Later, its counter has started over (the
+# cloud's version, say), and the message is the latest there is.
+REORDER_WINDOW_S = 120.0
+# How long a report may take to reach Home Assistant.
+DELIVERY_SLACK_S = 5.0
 
 
 @dataclass
 class _Meta:
     report_version: int | None = None
-    versions: dict[str, int] = field(default_factory=dict)
+    report_at: float = 0.0
+    # The last version applied, and when (monotonic seconds), by message type.
+    versions: dict[str, tuple[int, float]] = field(default_factory=dict)
     device_ts: int | None = None
+    device_ts_at: float = 0.0
 
 
 class StateTracker:
     """Merge websocket updates per appliance and drop stale ones.
 
     Joule: messages can arrive out of order, so they are ordered by the
-    device uptime counter in `timestamp`; a large backwards jump means the
-    Joule rebooted. Newer appliances: like the app, drop any version that is
-    not newer than the last one applied (tracked per message type, since the
-    Joule mixes shadow versions and epoch-millisecond versions).
+    device uptime counter in `timestamp`; a large backwards jump, or uptime
+    shorter than the time since the newest report, means the Joule rebooted.
+    Newer appliances: like the app, drop any version that is not newer than
+    the last one applied (tracked per message type, since the Joule mixes
+    shadow versions and epoch-millisecond versions), unless it comes long
+    after it: the app restarts often, and Home Assistant shouldn't wait out a
+    restarted counter for good.
     """
 
     def __init__(self) -> None:
@@ -701,16 +759,18 @@ class StateTracker:
     def state(self, serial: str) -> dict[str, Any]:
         return self._states.get(serial, {})
 
-    def apply(self, update: StateUpdate, model: str) -> bool:
+    def apply(self, update: StateUpdate, model: str, now: float | None = None) -> bool:
+        """Apply an update received at `now` (monotonic seconds); whether it was fresh."""
+        now = time.monotonic() if now is None else now
         meta = self._meta.setdefault(update.serial, _Meta())
         if model == MODEL_CSJ100:
-            if not self._csj_fresh(update, meta):
+            if not self._csj_fresh(update, meta, now):
                 return False
         elif update.version is not None:
             last = meta.versions.get(update.message_type)
-            if last is not None and update.version <= last:
+            if last is not None and update.version <= last[0] and now - last[1] < REORDER_WINDOW_S:
                 return False
-            meta.versions[update.message_type] = update.version
+            meta.versions[update.message_type] = (update.version, now)
         current = self._states.get(update.serial, {})
         self._states[update.serial] = (
             dict(update.state) if update.replace else deep_merge(current, update.state)
@@ -718,17 +778,24 @@ class StateTracker:
         return True
 
     @staticmethod
-    def _csj_fresh(update: StateUpdate, meta: _Meta) -> bool:
+    def _csj_fresh(update: StateUpdate, meta: _Meta, now: float) -> bool:
         if update.replace and update.version is not None:
-            if meta.report_version is not None and update.version < meta.report_version:
+            if (
+                meta.report_version is not None
+                and update.version < meta.report_version
+                and now - meta.report_at < REORDER_WINDOW_S
+            ):
                 return False
-            meta.report_version = update.version
+            meta.report_version, meta.report_at = update.version, now
         ts = update.state.get("timestamp")
         if isinstance(ts, int) and meta.device_ts is not None:
-            if 0 < meta.device_ts - ts <= CSJ_REORDER_WINDOW_MS:
+            # Up for less time than has passed since the newest report: it
+            # rebooted since, however recently it had started before.
+            rebooted = ts <= (now - meta.device_ts_at + DELIVERY_SLACK_S) * 1000
+            if 0 < meta.device_ts - ts <= CSJ_REORDER_WINDOW_MS and not rebooted:
                 return False
         if isinstance(ts, int):
-            meta.device_ts = ts
+            meta.device_ts, meta.device_ts_at = ts, now
         return True
 
 
@@ -783,6 +850,40 @@ def duration_limits(model: str, settings: CookSettings | None = None) -> tuple[i
         mode = OVEN_MODES[settings.mode]
         return mode.min_seconds(settings.level), mode.max_seconds(settings.temperature_c, settings.level)
     return 0, MODELS[model].max_cook_s
+
+
+@dataclass(frozen=True)
+class LimitProblem:
+    """A cook setting outside its limits, with the translation key that says so."""
+
+    key: str  # temperature_out_of_range (limits in °C) or duration_out_of_range (in seconds)
+    low: float
+    high: float
+
+
+def cook_limit_problem(model: str, settings: CookSettings) -> LimitProblem | None:
+    """The first setting outside the model's or oven mode's limits, if any.
+
+    The oven's cook steps keep the temperature and time within the mode's
+    limits, so a cook outside them would quietly run at something else. The
+    temperature is checked as the oven gets it, in whole degrees; an oven
+    mode that cooks at a level ignores it.
+    """
+    oven_mode = OVEN_MODES.get(settings.mode or "") if model == MODEL_BOV950 else None
+    temp = settings.temperature_c
+    if oven_mode is None or oven_mode.type is OvenModeType.TEMP:
+        if oven_mode is not None and temp is not None and math.isfinite(temp):
+            temp = float(round(temp))
+        # An oven mode without a temperature set uses its default.
+        if temp is not None or oven_mode is None:
+            low, high = temp_limits(model, settings)
+            if temp is None or not low <= temp <= high:
+                return LimitProblem("temperature_out_of_range", low, high)
+    if settings.duration_s:
+        low, high = duration_limits(model, replace(settings, temperature_c=temp))
+        if not low <= settings.duration_s <= high:
+            return LimitProblem("duration_out_of_range", low, high)
+    return None
 
 
 def firmware_for(model: str, state: dict[str, Any]) -> dict[str, Any]:
@@ -862,6 +963,8 @@ def bov950_phase(settings: CookSettings) -> dict[str, Any]:
     if mode.type is OvenModeType.TEMP:
         low, high = float(mode.temp[1]), float(mode.temp[2])
         temp = settings.temperature_c if settings.temperature_c is not None else mode.temp[0]
+        if not math.isfinite(temp):
+            raise ValueError(f"Temperature must be {low:g}-{high:g} °C")
         phase["temperatureCelsius"] = _js_number(_clamp(round(temp), low, high))
     else:
         allowed = BroilLevel if mode.type is OvenModeType.BROIL else SlowCookLevel
@@ -972,6 +1075,53 @@ def build_next_step(state: dict[str, Any]) -> NextStep:
     if not recipe_id or not isinstance(step, int):
         raise ValueError("No cook is waiting")
     return NextStep(str(recipe_id), step + 1)
+
+
+# -- starting the timer automatically --------------------------------------------
+
+# The cook Home Assistant started must show up within this long, or it never started.
+AUTO_START_BIND_S = 120.0
+
+
+class AutoStartAction(StrEnum):
+    WAIT = "wait"
+    PRESS = "press"  # press Continue: the cook is at temperature, waiting for the food
+    DROP = "drop"  # nothing more to do: the timer runs, or the cook is gone
+
+
+@dataclass
+class AutoStart:
+    """Start the timer of a cook Home Assistant started with Start timer automatically on.
+
+    A Joule ignores the recipe's defaultAutostart and waits for the food anyway
+    (verified), so Continue is pressed for it once it's at temperature. An
+    appliance that starts its own timer never waits, so nothing is pressed.
+    Only the cook Home Assistant started counts: the first one to show up.
+    """
+
+    requested_at: float  # monotonic seconds
+    cook_id: str | None = None
+
+    def step(self, status: ApplianceStatus, now: float) -> AutoStartAction:
+        if not status.online:
+            # Offline for a moment, the cook carries on, and so does this.
+            if self.cook_id is None and now - self.requested_at > AUTO_START_BIND_S:
+                return AutoStartAction.DROP
+            return AutoStartAction.WAIT
+        if self.cook_id is None:
+            if status.cooking and status.cook_id:
+                self.cook_id = status.cook_id
+            elif now - self.requested_at > AUTO_START_BIND_S:
+                return AutoStartAction.DROP
+            else:
+                return AutoStartAction.WAIT
+        if not status.cooking or status.cook_id != self.cook_id:
+            return AutoStartAction.DROP  # stopped, or another cook
+        if status.state is CookState.READY:
+            return AutoStartAction.PRESS
+        if status.state in (CookState.PREHEATING, CookState.WAITING_FOR_BUTTON):
+            return AutoStartAction.WAIT
+        return AutoStartAction.DROP  # the timer is running, or the cook is over
 
 
 @dataclass(frozen=True)

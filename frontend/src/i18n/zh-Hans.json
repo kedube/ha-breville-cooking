@@ -106,6 +106,8 @@
   "reason.untested": "{product} 的控制功能尚未经过测试，因此 Home Assistant 只会监控它。",
   "reason.open_options": "在集成选项中允许控制",
   "reason.oven_running": "正在进行的烤箱烹饪无法更改。请先停止烹饪，再更改设置。",
+  "reason.cook_over": "烹饪已结束，无法更改。请先停止，再开始新的烹饪。",
+  "reason.cook_locked": "此设备上正在进行的烹饪无法更改。请先停止烹饪，再更改设置。",
   "value.until_stopped": "直到停止",
   "value.open": "打开",
   "value.closed": "关闭",

@@ -313,6 +313,21 @@
     },
     "stop_cook_first": {
       "message": "Stoppa tillagningen innan du ändrar den här inställningen."
+    },
+    "cook_over": {
+      "message": "Tillagningen är klar och kan inte ändras. Stoppa den för att starta en ny."
+    },
+    "temperature_out_of_range": {
+      "message": "Temperaturen för den här tillagningen måste vara mellan {min} och {max}."
+    },
+    "duration_out_of_range": {
+      "message": "Tillagningstiden för den här tillagningen måste vara mellan {min} och {max} minuter."
+    },
+    "temperature_not_for_mode": {
+      "message": "Det här läget tillagar på en nivå, inte vid en temperatur."
+    },
+    "cook_running": {
+      "message": "En tillagning pågår redan. Stoppa den innan du startar en ny."
     }
   }
 }

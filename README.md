@@ -66,6 +66,7 @@ Or use this button to open Breville+ Cooking in HACS on your Home Assistant:
 ### Updating
 
 HACS offers each new release as an update and shows its release notes.
+[CHANGELOG.md](CHANGELOG.md) lists the changes in every release.
 Install the update and restart Home Assistant.
 
 ### Manual installation
@@ -198,7 +199,7 @@ Every appliance has:
 | Cook time | Number | The timer in minutes, for the next cook or the running one. For sous vide, 0 holds the temperature until you stop it. While an oven preheats it's unknown, because the oven only reports its timer once preheating is done. |
 | Cook | Switch | Turn on to start a cook with these settings, and off to stop it. |
 | Continue | Button | Tells the appliance the food is in, which starts the timer, or that it's out. Available only while the appliance is waiting for this. |
-| Start timer automatically | Switch (configuration) | Starts the timer as soon as the temperature is reached, instead of waiting for **Continue**. On at first for the oven, as in the app. |
+| Start timer automatically | Switch (configuration) | Starts the timer as soon as the temperature is reached, instead of waiting for **Continue**. On at first for the oven, as in the app. For a Joule, Home Assistant sends the app's request to arm the timer once the cook has started. If the Joule still waits for the food, Home Assistant presses **Continue** for it a few seconds after it reaches temperature. |
 
 The oven also has:
 
@@ -216,11 +217,18 @@ Settings for the next cook are kept in Home Assistant, survive restarts, and
 go to the appliance only when a cook starts. Changing settings in the
 Breville+ app doesn't change them here.
 While a cook runs, **Target temperature** and **Cook time** show the running
-cook, and on a sous vide changing them changes it. On the oven, **Mode**,
+cook. On a Joule Turbo, changing them changes it, until the timer has run out.
+A Joule's running cook can't be changed, as in the app. It shows a new target,
+but it keeps heating to the old one, so its **Cook time** shows the cook's
+length, and its settings can only be changed while it's idle. On the oven, **Mode**,
 **Convection** and **Level** show it too, even for a cook started on the oven
 itself. As in the app, a running oven cook can't be changed: its **Cook time** shows the cook's length, and all
 of its settings can only be changed while it's idle. Like the app, the
-integration keeps to each model's temperature and time limits.
+integration keeps to each model's temperature and time limits. A cook whose
+settings don't fit them isn't started. Instead, you get an error that gives the
+limits. For example, the oven's longest cook gets shorter as the temperature
+goes up, so a 6-hour bake at 165 °C has to be shortened before it can run at
+220 °C.
 
 ### A sous vide cook, step by step
 
@@ -288,7 +296,11 @@ entities. Target the appliance's **Cook** switch.
 
 Fields you leave out come from the appliance's entities. If you set `mode`,
 they come from that mode's defaults instead, apart from `auto_start_timer` and
-`keep_warm`.
+`keep_warm`. A temperature or cook time outside the appliance's or mode's
+limits is refused with an error that gives the limits, and so is a temperature
+for a mode that cooks at a level (broil and slow cook). The oven takes whole
+degrees, so its temperature is rounded first. As in the app, there's one cook
+at a time: while a cook is running, the action is refused until you stop it.
 
 ```yaml
 action: breville_cooking.start_cook
@@ -301,7 +313,8 @@ data:
 
 The standard actions work too. For example, `switch.turn_on` on **Cook**
 starts a cook with the entities' settings, `switch.turn_off` stops it, and
-`button.press` presses **Continue**.
+`button.press` presses **Continue**. While a cook is running, `switch.turn_on`
+does nothing, so an automation that runs twice doesn't replace it.
 
 ## Examples
 
@@ -427,7 +440,10 @@ When you report a problem or want support for a new model or firmware, attach
 the integration's diagnostics: go to **Settings → Devices & services →
 Breville+ Cooking**, then ⋮ → **Download diagnostics**. The file contains each
 appliance's raw state and its last 50 messages from Breville's cloud, plus
-Home Assistant's last 20 requests to the cloud. Your email, name and account
+Home Assistant's last 20 requests to the cloud. It also has the entry's state,
+so you can download it when setup fails, and whether the cloud answers the
+connection's pings (`websocket_answers_pings`). Only then does the integration
+notice a connection that drops without closing. Your email, name and account
 IDs, login tokens, appliance names, serial numbers and network addresses are
 removed wherever they appear. Look the file over before posting it publicly.
 
@@ -463,13 +479,24 @@ pull request and push to `main`.
 
 ### Releasing
 
+Describe each change under **Unreleased** in [CHANGELOG.md](CHANGELOG.md) as
+you make it: what users see, not how it's done.
+
 Releases are made by hand: on GitHub, open **Actions → Release → Run
-workflow** and run it on `main`. After CI passes, the workflow raises the
-version in `manifest.json` by 0.01 (0.00 → 0.01, …, 0.99 → 1.00) and commits it
-to `main`. It then tags that commit with the bare version (`0.01`, no `v`) and
-publishes a GitHub release with generated notes and `breville_cooking.zip`,
-which HACS offers as an update. To preview the next version, run
-`python3 scripts/bump_version.py`.
+workflow** and run it on `main`. After CI passes, the workflow:
+
+1. Raises the version in `manifest.json` by 0.01 (0.00 → 0.01, …, 0.99 → 1.00).
+2. Makes the changelog's Unreleased section that version's, dated today, with
+   a new empty Unreleased section above it. If nothing was written under
+   Unreleased, the section lists the commits since the last release instead.
+3. Commits both to `main` and tags the commit with the bare version (`0.01`,
+   no `v`).
+4. Publishes a GitHub release with `breville_cooking.zip`, which HACS offers as
+   an update. Its notes are the version's changelog section as Highlights,
+   then the commits since the last release.
+
+To preview the next version, run `python3 scripts/bump_version.py`. Both steps
+of the changelog are in `scripts/changelog.py` (`rotate` and `notes`).
 
 ### Probe script
 
@@ -483,6 +510,9 @@ python3 scripts/breville_probe.py login
 python3 scripts/breville_probe.py watch --seconds 600
 python3 scripts/breville_probe.py start --temp 55 --minutes 30 --confirm-water
 ```
+
+`watch` pings the cloud once it has subscribed. When it finishes, it reports
+whether a `pong` came back.
 
 The protocol was recovered from the Breville+ Cooking Android app (1.96.0).
 [docs/api.md](docs/api.md) documents the cloud API, and marks which parts were

@@ -173,8 +173,8 @@ Unix time in milliseconds. A successful command returns an empty body, except
 | Action | Purpose | Joule (CSJ100) | Joule Turbo (BSV600), Joule Oven (BOV950) |
 |---|---|---|---|
 | [`load-manual-recipe`](#start-a-cook) | Start a cook | Verified | Verified on the oven; from the app for the Joule Turbo |
-| [`send-csj-message`](#change-a-joule-cook) | Change a running Joule cook | Verified | Not used |
-| [`update-cook`](#change-a-cook-on-newer-appliances) | Change a running cook | Not used | From the app for the Joule Turbo; the app doesn't offer it for the oven, which ignored it |
+| [`send-csj-message`](#change-a-joule-cook) | Change a running Joule cook | Accepted, but the Joule goes on heating to the old temperature (verified); not used | Not used |
+| [`update-cook`](#change-a-cook-on-newer-appliances) | Change a running cook, or arm its timer | Arms the timer (`autoStartTimer` 1) right after a cook starts, as the app does (verified). The boolean `true` gets HTTP 400 `"Invalid update type"` (verified) | From the app for the Joule Turbo; the app doesn't offer it for the oven, which ignored it |
 | [`finish-wait`](#food-in-food-out) | Food is in, or food is out | Verified | From the app for the Joule Turbo; the app doesn't use it for the oven, which ignored it |
 | [`send-step`](#go-on-to-the-next-step) | Go on to the next step of the running recipe | Not used | Verified on the oven, which the app continues this way; from the app for the Joule Turbo |
 | [`stop-recipe`](#stop-a-cook) | Stop the cook | Verified | Verified on the oven; from the app for the Joule Turbo |
@@ -222,6 +222,12 @@ The cloud turns the steps into a recipe and runs it on the appliance. It
 returns the recipe as `{"recipe": {…}}`, with `id`, `className`, `version`,
 `locales`, `applicableDevicesSlugs`, `overallDisplay` (per model) and `steps`.
 
+**Verified on a Joule:** a cook started while another one is open replaces it.
+A Joule waiting for the food of a 40 °C cook reported idle for a second, then
+preheated to the new cook's 43 °C, with a new `cookId`. The integration doesn't
+start a cook over an open one: the Cook switch does nothing then, and
+`start_cook` refuses.
+
 #### Joule steps
 
 **Verified.** A Joule recipe has one step with one phase, as in the example
@@ -230,10 +236,39 @@ above.
 - To hold the temperature until stopped, leave out `seconds` and add
   `"skipTimer": true` to the phase.
 - Temperatures are in °C, rounded to 0.1, from 20 to 98 °C.
-- With `"defaultAutostart": false`, the Joule waits for the food once it's at
-  temperature (`programStep` 2), and [`finish-wait`](#food-in-food-out) starts
-  the timer. With `true`, the timer starts as soon as the water is at
-  temperature.
+- The Joule waits for the food once it's at temperature (`programStep` 2),
+  and [`finish-wait`](#food-in-food-out) starts the timer. **Verified:** it
+  does this even with `"defaultAutostart": true`. Two cooks asking for it
+  waited for food: one 143 seconds until Continue was pressed, the other over
+  3 minutes.
+- **From the app.** To start the timer at temperature, the app sends a second
+  request,
+  [`update-cook`](#change-a-cook-on-newer-appliances), once
+  `load-manual-recipe` succeeds (`useStartManualCook`, and
+  `useStartContentCook` for guided cooks):
+
+  ```json
+  {"model": "CSJ100", "step": 0, "updates": [{"name": "autoStartTimer", "value": 1}], "uuid": ""}
+  ```
+
+  The value is the app's `AutoStart` enum, the number `1` (`0` is off), not a
+  boolean. **Verified:** the cloud answered 200 with `null`, and
+  `dropFoodTimestamp` appeared 2 seconds later, while the Joule was still
+  preheating. At temperature, it went straight from preheat (`programStep` 1)
+  to cooking (3), with the timer counting down from the full cook time. With
+  `true` instead, the cloud answered HTTP 400 `"Invalid update type"`
+  (verified), and the cook waited for food.
+- **From the app.** Over Bluetooth, it arms the timer by sending
+  `dropFoodRequest` straight away, the message it also uses for Continue. The app reads an armed timer from
+  `dropFoodTimestamp` while preheating, and starts its countdown display from
+  the later of `dropFoodTimestamp` and `setPointReachedTimestamp`. So the food
+  can be marked as in before the Joule is at temperature, and the timer then
+  starts at temperature. Once armed, the app locks its toggle and never sends
+  `0` to a Joule.
+- With **Start timer automatically** on, the integration sends the same
+  `update-cook` once the cook has started. If the Joule still waits for the
+  food, the integration presses Continue for it 3 seconds after a cook it
+  started is ready for food.
 
 #### Joule Turbo steps
 
@@ -363,9 +398,14 @@ integration doesn't offer them either.
 
 ### Change a Joule cook
 
-**Verified.** `send-csj-message` passes a message to the Joule's own command
-protocol. To change the temperature or time of the running cook, send a
-`startProgramRequest`:
+**Doesn't work (verified).** `send-csj-message` passes a message to the Joule's
+own command protocol. The app's code changes a running cook by sending a
+`startProgramRequest`, and the cloud accepts it. But on a cook started with
+[`load-manual-recipe`](#start-a-cook), the Joule only reports the new
+`setPoint`, and goes on heating to the old one. With the timer running at
+37.2 °C, a change to 40 °C left the water drifting from 38.4 to 38.0 °C over a
+minute. The app doesn't offer the change either, so the integration doesn't
+send it. For the record, the message is:
 
 ```json
 {
@@ -387,6 +427,12 @@ protocol. To change the temperature or time of the running cook, send a
 - `cookTime` is the reported `timeRemaining` once the timer is running, so the
   timer carries on from where it was. Before that, it's the reported
   `cookTime`.
+- Once the timer has run out (`programStep` 4), the Joule doesn't take
+  changes. **Verified:** a manual program changing a finished 37.8 °C cook to
+  40 °C was accepted (`null`), and the Joule went on to report `setPoint` 40.
+  But for the next 45 seconds the water stayed at 37.8 to 37.9 °C, the step
+  stayed at 4, and no timer started. So a reported `setPoint` doesn't show
+  what the Joule is heating to.
 - Copy `cookId` and `guideId` from the reported state, or the Joule treats it
   as a different cook.
 - On an idle Joule this only loads the program; it doesn't start heating. Use
@@ -413,8 +459,9 @@ either.
 
 - `step` is the reported `currentStep`, and `uuid` is the reported `cookUUID`.
   The app uses these for a cook it didn't start itself.
-- The update names are `cookSetPoint`, `cookTime` and `autoStartTimer`. The
-  app sends °C, converted from °F without rounding (375 °F is
+- The update names are `cookSetPoint`, `cookTime` and `autoStartTimer`.
+  `autoStartTimer` is the number `1` or `0`; for a Joule, see
+  [Start a cook](#start-a-cook). The app sends °C, converted from °F without rounding (375 °F is
   `190.55555555555554`), and seconds: after an edit it checks the timer's
   `down_from_n` against the value.
 - On a Joule Oven baking with the timer running, a `cookSetPoint` and a
@@ -529,15 +576,35 @@ The client sends JSON messages:
 |---|---|---|
 | `{"action": "addAppliance", "serialNumber": "…", "app": "brevilleJoule", "model": "CSJ100"}` | Subscribe to an appliance. | Verified |
 | `{"action": "removeAppliance", "serialNumber": "…"}` | Unsubscribe. | From the app |
-| `{"action": "ping"}` | Keep the connection open. | From the app |
+| `{"action": "ping"}` | Keep the connection open. The cloud answers with a `pong`. | Verified |
 
 After `addAppliance`, the cloud sends a `stateReport` with the full state, then
 a stream of updates. Subscribe again on every new connection.
+
+That first `stateReport` is the cloud's stored copy of the state, which it
+refreshes about every 26 seconds, so it can be that old. **Verified on a
+Joule:** 12 seconds after a new 43 °C cook started, the first report still
+showed the previous 40 °C cook, with its `cookId` and an uptime 26 seconds
+behind the next update. The integration's ordering by uptime drops a report
+like this once it has seen newer updates. On a fresh connection, the next
+update replaces it within a couple of seconds.
 
 The app checks the connection every 5 seconds and pings when nothing has been
 sent or received for 15 seconds. After a drop, it reconnects after 5 seconds,
 then waits 1.8 times longer before each retry. The integration caps the wait at
 5 minutes.
+
+The cloud answers each ping with `{"messageType": "pong"}`, which has no
+serial number or data. This was verified on a Joule's connection, with the
+answer within a second. The integration pings once soon after connecting, even
+if messages keep it from going quiet. Once the cloud has answered with a
+`pong`, the integration treats 45 seconds without receiving
+anything as a connection that dropped without closing, such as after a Wi-Fi
+drop. It closes the connection and reconnects. Until a `pong` arrives, it
+doesn't do this, in case the cloud doesn't answer pings.
+
+REST requests, token refreshes and the websocket handshake give up after 30
+seconds.
 
 The cloud's messages look like this:
 
@@ -556,7 +623,8 @@ The cloud's messages look like this:
 | `changeReport` | Part of the state in `data.reported`. Merge it in, key by key, including nested objects. | From the app |
 | `applianceDataPoint` | The live state, flat in `data`. Merge it in. On a Joule, `version` is a string of epoch milliseconds. | Verified |
 | `syncCookHistoryReport` | Cook history. `data.document` lists `{className, contentId, cookUuid, timestamp}`. | Verified |
-| `buttonPressResult`, `timelineReport`, `syncCarouselReport`, `syncFavoritesReport`, `cookHistoryModifiedNotification`, `pong` | Used by the app, and ignored by the integration. | From the app |
+| `pong` | The answer to `{"action": "ping"}`: just `{"messageType": "pong"}`. The integration uses it to tell a live connection from a dead one. | Verified |
+| `buttonPressResult`, `timelineReport`, `syncCarouselReport`, `syncFavoritesReport`, `cookHistoryModifiedNotification` | Used by the app, and ignored by the integration. | From the app |
 
 A Joule sends `applianceDataPoint` messages every few seconds, with a
 `stateReport` from time to time.
@@ -570,11 +638,17 @@ integration drops stale messages like this:
 - **Joule:** drop a `stateReport` whose version is lower than the last one.
   Every Joule state has a `timestamp`: the Joule's uptime in milliseconds. Drop
   any update that is up to 2 minutes older than the newest one seen. A bigger
-  jump back means the Joule restarted, so accept it. Don't compare versions
-  across message types: `applianceDataPoint` versions are epoch milliseconds,
-  while `stateReport` versions are a counter.
+  jump back means the Joule restarted, so accept it. So does an uptime shorter
+  than the time since the newest report arrived, plus 5 seconds for delivery:
+  that catches a Joule that restarts within 2 minutes of starting. Don't
+  compare versions across message types: `applianceDataPoint` versions are
+  epoch milliseconds, while `stateReport` versions are a counter.
 - **Joule Turbo and Joule Oven** (from the app): drop any message whose
   `version` isn't newer than the last one of the same `messageType`.
+- **Every model:** an older message is late only if it arrives within 2 minutes
+  of the newest one applied. After that, the integration takes it as a counter
+  that started over and accepts it. The app restarts often enough that this
+  doesn't come up there, but Home Assistant runs for months.
 
 ## Appliance state
 

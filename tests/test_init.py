@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import replace
 from datetime import timedelta
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,11 +16,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.json import ExtendedJSONEncoder
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.breville_cooking import async_remove_config_entry_device
-from custom_components.breville_cooking.api import BrevilleAuthError
+from custom_components.breville_cooking.api import BrevilleApiError, BrevilleAuthError, BrevilleError
 from custom_components.breville_cooking.appliance import MODEL_BSV600, MODELS, OVEN_MODES
 from custom_components.breville_cooking.const import CONF_ALLOW_UNTESTED_CONTROL, DOMAIN
 from custom_components.breville_cooking.diagnostics import (
@@ -143,14 +145,15 @@ async def test_joule_cook_lifecycle(
     await push(hass, socket, csj("ACTIVE", 3, timeRemaining=240))
     assert hass.states.get("sensor.countertop_status").state == "cooking"
     assert float(hass.states.get("sensor.countertop_time_remaining").state) == 4
-    assert hass.states.get("number.countertop_cook_time").state == "4"
+    # A running Joule cook can't be changed, so Cook time shows its length, as the oven's does.
+    assert hass.states.get("number.countertop_cook_time").state == "5"
     assert hass.states.get("sensor.countertop_cook_end").state != "unknown"
 
-    # Running: changing the temperature edits the cook, keeping its timer.
-    await call(hass, "number", "set_value", "number.countertop_target_temperature", value=57)
-    serial, program = client.csj_update_program.await_args.args
-    assert program["setPoint"] == 57.0 and program["cookTime"] == 240
-    assert program["programMetadata"] == {"cookId": "cook1", "guideId": "manual_x"}
+    # Verified: a Joule takes a new setpoint, and reports it, but goes on heating to the old one.
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, "number", "set_value", "number.countertop_target_temperature", value=57)
+    assert err.value.translation_key == "stop_cook_first"
+    client.csj_update_program.assert_not_awaited()
 
     await call(hass, "switch", "turn_off", "switch.countertop_cook")
     assert client.stop_recipe.await_args.args == (JOULE, "CSJ100")
@@ -224,6 +227,7 @@ async def test_untested_models_are_monitor_only(
     client.update_cook.assert_not_awaited()
     await call(hass, "switch", "turn_off", "switch.turbo_cook")
     client.stop_recipe.assert_awaited_once()
+    await push(hass, socket, {**TURBO_IDLE, "version": 12})  # the cook has stopped
 
     # The option applies straight away, without a reload.
     hass.config_entries.async_update_entry(entry, options={CONF_ALLOW_UNTESTED_CONTROL: True})
@@ -465,8 +469,6 @@ async def test_cooks_started_on_the_oven(
 async def test_cloud_errors_become_ha_errors(
     hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
 ) -> None:
-    from custom_components.breville_cooking.api import BrevilleApiError
-
     await push(hass, socket, csj("IDLE", 0, setPoint=None, cookId=None))
     client.load_manual_recipe.side_effect = BrevilleApiError("POST", "u", 500, "oops")
     with pytest.raises(HomeAssistantError):
@@ -629,8 +631,6 @@ async def test_websocket_reconnects(
 async def test_appliance_list_errors(
     hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
 ) -> None:
-    from custom_components.breville_cooking.api import BrevilleError
-
     await push(hass, socket, csj("IDLE", 0, setPoint=None, cookId=None))
     coordinator = entry.runtime_data
     client.get_appliances.side_effect = BrevilleError("down")
@@ -645,4 +645,308 @@ async def test_appliance_list_errors(
     await flush(hass)
     flows = hass.config_entries.flow.async_progress()
     assert [f["context"]["source"] for f in flows] == ["reauth"]
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_malformed_message_is_ignored(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A message that still can't be read doesn't end the connection for every appliance.
+
+    Reading the state doesn't raise any more (see test_appliance's malformed
+    fields), so a failure is made here: the safety net stays for what nobody
+    has thought of.
+    """
+    await push(hass, socket, OVEN_IDLE, csj("IDLE", 0, setPoint=None, cookId=None))
+    with patch(
+        "custom_components.breville_cooking.coordinator.parse_status",
+        side_effect=RuntimeError("unforeseen"),
+    ):
+        await push(hass, socket, csj("ACTIVE", 3), csj("ACTIVE", 3))
+    assert entry.runtime_data.connected
+    assert hass.states.get("sensor.kitchen_oven_status").state == "idle"
+    # Logged in full once, as the same fault tends to repeat.
+    assert caplog.text.count("couldn't be read; later ones are logged at debug level") == 1
+
+    # The next readable message goes through.
+    await push(hass, socket, csj("ACTIVE", 3, timeRemaining=200))
+    assert hass.states.get("sensor.countertop_status").state == "cooking"
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_malformed_fields_read_as_missing(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket
+) -> None:
+    """A field of the wrong type doesn't stop the appliance's status from updating."""
+    await push(hass, socket, csj("ACTIVE", 3, cookTime="abc", timeRemaining=[1], eventReason={}))
+    assert hass.states.get("sensor.countertop_status").state == "cooking"
+    # It stays in the merged state, and later reports still go through.
+    await push(hass, socket, csj("ACTIVE", 4, cookTime="abc", timeRemaining=[1]))
+    assert hass.states.get("sensor.countertop_status").state == "done"
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_turning_on_while_cooking_changes_nothing(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """An automation that turns the Cook switch on twice doesn't replace the running cook."""
+    await push(hass, socket, csj("ACTIVE", 3, timeRemaining=1800))
+    await call(hass, "switch", "turn_on", "switch.countertop_cook")
+    client.load_manual_recipe.assert_not_awaited()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.parametrize(
+    ("target", "data", "key", "placeholders"),
+    [
+        ("kitchen_oven", {"temperature": 300}, "temperature_out_of_range", {"min": "50 °C", "max": "250 °C"}),
+        ("kitchen_oven", {"temperature": "inf"}, "temperature_out_of_range", {"min": "50 °C", "max": "250 °C"}),
+        ("kitchen_oven", {"temperature": "nan"}, "temperature_out_of_range", {"min": "50 °C", "max": "250 °C"}),
+        ("kitchen_oven", {"mode": "broil", "temperature": 200}, "temperature_not_for_mode", None),
+        ("kitchen_oven", {"mode": "air_fry", "duration": {"hours": 2}}, "duration_out_of_range",
+         {"min": "1", "max": "60"}),
+        # Hotter cooks are shorter: 4 hours at 200 °C and above.
+        ("kitchen_oven", {"temperature": 220, "duration": {"hours": 5}}, "duration_out_of_range",
+         {"min": "1", "max": "240"}),
+        ("countertop", {"temperature": 99}, "temperature_out_of_range", {"min": "20 °C", "max": "98 °C"}),
+        ("countertop", {"duration": {"hours": 100}}, "duration_out_of_range", {"min": "0", "max": "5760"}),
+    ],
+)
+async def test_start_cook_refuses_what_the_cook_would_change(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock,
+    target: str, data: dict, key: str, placeholders: dict | None,
+) -> None:
+    """Out of range, the oven would quietly cook at its limit instead: say so."""
+    await push(hass, socket, OVEN_IDLE, csj("IDLE", 0, setPoint=None, cookId=None))
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, DOMAIN, "start_cook", f"switch.{target}_cook", **data)
+    assert err.value.translation_key == key
+    assert err.value.translation_placeholders == placeholders
+    client.load_manual_recipe.assert_not_awaited()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_start_cook_rounds_the_oven_temperature_first(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """The oven takes whole degrees, so 250.4 °C is 250 °C, within bake's limit."""
+    await push(hass, socket, OVEN_IDLE)
+    await call(hass, DOMAIN, "start_cook", "switch.kitchen_oven_cook", temperature=250.4)
+    steps = client.load_manual_recipe.await_args.args[3]
+    assert steps[0]["phases"][-1]["temperatureCelsius"] == 250
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_remove_device_while_the_entry_is_not_loaded(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    """Home Assistant asks even then, and runtime_data goes with the unload."""
+    oven = appliance_device(hass, OVEN)
+    await hass.config_entries.async_unload(entry.entry_id)
+    assert await async_remove_config_entry_device(hass, entry, oven) is True
+
+
+async def test_failed_subscribe_doesnt_fail_the_refresh(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """A socket going down as a new appliance turns up: the reconnect subscribes it."""
+    coordinator = entry.runtime_data
+    socket.subscribe = AsyncMock(side_effect=BrevilleError("Websocket is not connected"))
+    turbo = {"model": "BSV600", "serialNumber": "T600123", "name": "Turbo"}
+    client.get_appliances.return_value = {
+        "appliances": [*APPLIANCES["appliances"], turbo], "ownedModels": [],
+    }
+    await coordinator.async_refresh()
+    await flush(hass)
+    assert coordinator.last_update_success
+    assert hass.states.get("switch.turbo_cook") is not None
+    socket.subscribe.assert_awaited_once_with("T600123", "BSV600")
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_start_cook_while_a_cook_is_open(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """One cook at a time, as in the app: stop the running one first."""
+    await push(hass, socket, csj("ACTIVE", 4))  # done, waiting for the food to come out
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, DOMAIN, "start_cook", "switch.countertop_cook", temperature=60)
+    assert err.value.translation_key == "cook_running"
+    client.load_manual_recipe.assert_not_awaited()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_cook_switch_refuses_settings_outside_the_limits(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """Each setting fit when it was set, but together the oven would cut the cook short."""
+    await push(hass, socket, OVEN_IDLE)
+    await call(hass, "number", "set_value", "number.kitchen_oven_cook_time", value=360)  # 6 h at 165 °C
+    await call(hass, "number", "set_value", "number.kitchen_oven_target_temperature", value=220)
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, "switch", "turn_on", "switch.kitchen_oven_cook")
+    assert err.value.translation_key == "duration_out_of_range"
+    assert err.value.translation_placeholders == {"min": "1", "max": "240"}
+    client.load_manual_recipe.assert_not_awaited()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_limits_in_fahrenheit(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket
+) -> None:
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    await push(hass, socket, OVEN_IDLE)
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, DOMAIN, "start_cook", "switch.kitchen_oven_cook", temperature=500)
+    assert err.value.translation_placeholders == {"min": "122 °F", "max": "482 °F"}
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_diagnostics_while_the_entry_is_not_set_up(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> None:
+    """Downloadable when setup fails, which is when it's most wanted."""
+    await hass.config_entries.async_unload(entry.entry_id)
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert (diag["state"], diag["websocket_connected"], diag["appliances"]) == ("not_loaded", False, [])
+    downloaded = json.dumps(diag, cls=ExtendedJSONEncoder).casefold()
+    for personal in (*PROFILE.values(), "Salesforce|1"):
+        assert personal.casefold() not in downloaded, personal
+
+
+async def test_diagnostics_say_whether_the_cloud_answers_pings(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket
+) -> None:
+    assert (await async_get_config_entry_diagnostics(hass, entry))["websocket_answers_pings"] is False
+    socket.answers_pings = True
+    assert (await async_get_config_entry_diagnostics(hass, entry))["websocket_answers_pings"] is True
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_a_message_updates_only_its_appliance(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket
+) -> None:
+    """The Joule's live state doesn't rewrite the oven's entities, and the reverse."""
+    await push(hass, socket, OVEN_IDLE, csj("IDLE", 0, setPoint=None, cookId=None))
+    with patch.object(
+        CoordinatorEntity, "_handle_coordinator_update", autospec=True
+    ) as updated:
+        await push(hass, socket, csj("ACTIVE", 3, timeRemaining=200))
+    serials = {entity.appliance.serial for (entity,), _ in updated.call_args_list}
+    assert serials == {JOULE}
+    # Changes that aren't one appliance's state still reach every entity.
+    with patch.object(
+        CoordinatorEntity, "_handle_coordinator_update", autospec=True
+    ) as updated:
+        entry.runtime_data.async_update_listeners()
+    assert {entity.appliance.serial for (entity,), _ in updated.call_args_list} == {JOULE, OVEN}
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_a_cook_thats_over_cant_be_changed(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """Verified on a Joule: once its timer has run out, it shows a new setpoint but holds the old one."""
+    await push(hass, socket, csj("ACTIVE", 4))  # done, waiting for the food to come out
+    for entity_id, value in (("target_temperature", 40), ("cook_time", 30)):
+        with pytest.raises(ServiceValidationError) as err:
+            await call(hass, "number", "set_value", f"number.countertop_{entity_id}", value=value)
+        assert err.value.translation_key == "cook_over"
+    client.csj_update_program.assert_not_awaited()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def _settle(hass: HomeAssistant) -> None:
+    """Let Start timer automatically's press run. Not wait_background_tasks: the websocket
+    loop is one too, and never ends."""
+    await asyncio.sleep(0.02)
+    await flush(hass)
+
+
+async def _start_joule_cook(hass: HomeAssistant, socket: FakeSocket, *, auto_start: bool) -> None:
+    await push(hass, socket, csj("IDLE", 0, setPoint=None, cookId=None))
+    service = "turn_on" if auto_start else "turn_off"
+    await call(hass, "switch", service, "switch.countertop_start_timer_automatically")
+    await call(hass, "switch", "turn_on", "switch.countertop_cook")
+
+
+@patch("custom_components.breville_cooking.coordinator.AUTO_START_GRACE_S", 0)
+async def test_joule_timer_started_automatically(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """Armed as in the app, but should a Joule still wait for the food, Continue is pressed."""
+    await _start_joule_cook(hass, socket, auto_start=True)
+    assert client.load_manual_recipe.await_args.args[3][0]["defaultAutostart"] is True
+    # The app's second request, after the cook has started.
+    client.update_cook.assert_awaited_once_with(
+        JOULE, "CSJ100", [{"name": "autoStartTimer", "value": 1}], uuid="", step=0
+    )
+    calls = [name for name, *_ in client.mock_calls]
+    assert calls.index("update_cook") > calls.index("load_manual_recipe")
+    await push(hass, socket, csj("ACTIVE", 1, cookId="new"))
+    client.finish_wait.assert_not_awaited()
+    await push(hass, socket, csj("ACTIVE", 2, cookId="new"))
+    await _settle(hass)
+    client.finish_wait.assert_awaited_once_with(JOULE, "CSJ100", {})
+    # Once only, even if the next reports still say it's waiting.
+    await push(hass, socket, csj("ACTIVE", 2, cookId="new"), csj("ACTIVE", 3, cookId="new"))
+    await _settle(hass)
+    client.finish_wait.assert_awaited_once()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.parametrize(
+    ("auto_start", "messages"),
+    [
+        # The switch is off: the Joule waits for the food, as asked.
+        (False, [csj("ACTIVE", 1, cookId="new"), csj("ACTIVE", 2, cookId="new")]),
+        # Stopped while preheating, and another cook started in the app.
+        (True, [csj("ACTIVE", 1, cookId="new"), csj("IDLE", 0, cookId=None),
+                csj("ACTIVE", 2, cookId="app")]),
+        # Armed, the timer started by itself: nothing to press.
+        (True, [csj("ACTIVE", 1, cookId="new"), csj("ACTIVE", 3, cookId="new"),
+                csj("ACTIVE", 4, cookId="new")]),
+    ],
+)
+@patch("custom_components.breville_cooking.coordinator.AUTO_START_GRACE_S", 0)
+async def test_joule_timer_left_alone(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock,
+    auto_start: bool, messages: list[dict],
+) -> None:
+    await _start_joule_cook(hass, socket, auto_start=auto_start)
+    assert client.update_cook.await_count == (1 if auto_start else 0)
+    await push(hass, socket, *messages)
+    await _settle(hass)
+    client.finish_wait.assert_not_awaited()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+@patch("custom_components.breville_cooking.coordinator.AUTO_START_GRACE_S", 0)
+async def test_joule_arming_refused(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The cook has started regardless: the refusal is logged, and Continue pressed instead."""
+    client.update_cook.side_effect = BrevilleApiError(
+        "POST", "https://x/update-cook", 400, {"message": "Invalid update type"}
+    )
+    await _start_joule_cook(hass, socket, auto_start=True)
+    client.load_manual_recipe.assert_awaited_once()
+    assert "didn't take Start timer automatically" in caplog.text
+    await push(hass, socket, csj("ACTIVE", 1, cookId="new"), csj("ACTIVE", 2, cookId="new"))
+    await _settle(hass)
+    client.finish_wait.assert_awaited_once_with(JOULE, "CSJ100", {})
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_ready_only_for_a_moment_isnt_pressed(
+    hass: HomeAssistant, entry: MockConfigEntry, socket: FakeSocket, client: MagicMock
+) -> None:
+    """An appliance that starts its own timer might report Ready first: give it a moment."""
+    await _start_joule_cook(hass, socket, auto_start=True)
+    with patch("custom_components.breville_cooking.coordinator.AUTO_START_GRACE_S", 0.05):
+        await push(hass, socket, csj("ACTIVE", 2, cookId="new"), csj("ACTIVE", 3, cookId="new"))
+        await asyncio.sleep(0.1)
+        await _settle(hass)
+    client.finish_wait.assert_not_awaited()
     await hass.config_entries.async_unload(entry.entry_id)

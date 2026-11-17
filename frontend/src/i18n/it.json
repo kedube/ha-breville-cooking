@@ -106,6 +106,8 @@
   "reason.untested": "Il controllo del {product} non è ancora stato testato, quindi Home Assistant si limita a monitorarlo.",
   "reason.open_options": "Consenti il controllo nelle opzioni dell'integrazione",
   "reason.oven_running": "Una cottura del forno in corso non si può modificare. Interrompila per cambiare le impostazioni.",
+  "reason.cook_over": "La cottura è terminata, quindi non si può modificare. Interrompila per avviarne un'altra.",
+  "reason.cook_locked": "Su questo apparecchio una cottura in corso non si può modificare. Interrompila per cambiare le impostazioni.",
   "value.until_stopped": "Fino all'arresto",
   "value.open": "Aperto",
   "value.closed": "Chiuso",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import json
 
@@ -12,9 +13,14 @@ from custom_components.breville_cooking.appliance import (
     MODEL_BOV950,
     MODEL_BSV600,
     MODEL_CSJ100,
+    AUTO_START_BIND_S,
     OVEN_MODES,
+    ApplianceStatus,
+    AutoStart,
+    AutoStartAction,
     CookSettings,
     CookState,
+    LimitProblem,
     NextStep,
     StateTracker,
     build_bov950_steps,
@@ -22,6 +28,7 @@ from custom_components.breville_cooking.appliance import (
     build_finish_wait,
     build_manual_steps,
     build_next_step,
+    cook_limit_problem,
     default_settings,
     duration_limits,
     oven_mode_defaults,
@@ -106,6 +113,17 @@ class TestCsj:
         assert not tracker.apply(parse_message(csj_point(1_690_000, "ACTIVE", 3, 110)), MODEL_CSJ100)
         assert tracker.apply(parse_message(csj_point(5_000, "IDLE", 0, 0)), MODEL_CSJ100)
         assert tracker.state(SERIAL)["state"] == "IDLE"
+
+    def test_reboot_soon_after_starting_accepted(self) -> None:
+        """Up for less than the 2-minute window, a Joule's reboot isn't a big jump back."""
+        tracker = StateTracker()
+        assert tracker.apply(parse_message(csj_point(60_000, "ACTIVE", 3, 100)), MODEL_CSJ100, now=0)
+        # A late delivery comes straight after the newer report.
+        assert not tracker.apply(parse_message(csj_point(59_000, "ACTIVE", 3, 101)), MODEL_CSJ100, now=0.5)
+        # Up 5 s, 20 s after the last report: it rebooted.
+        assert tracker.apply(parse_message(csj_point(5_000, "IDLE", 0, 0)), MODEL_CSJ100, now=20)
+        assert tracker.apply(parse_message(csj_point(6_000, "IDLE", 0, 0)), MODEL_CSJ100, now=21)
+        assert tracker.state(SERIAL)["timestamp"] == 6_000
 
     def test_edit_keeps_cook(self) -> None:
         data = csj_point(1, "ACTIVE", 3, 120)["data"]
@@ -424,6 +442,25 @@ class TestTaskEngine:
         assert state["heaters"][0]["cur_temp"] == 200
         assert state["appliance"]["mode"] == 8  # untouched by the partial update
 
+    def test_restarted_version_counter_accepted_after_the_window(self) -> None:
+        """A cloud version that starts over doesn't freeze the state until a restart."""
+        tracker = StateTracker()
+
+        def apply(message_type: str, version: int, state: str, now: float) -> bool:
+            msg = {"serialNumber": SERIAL, "messageType": message_type, "version": version,
+                   "data": {"reported": {"state": state}}}
+            return tracker.apply(parse_message(msg), MODEL_BOV950, now=now)
+
+        assert apply("stateReport", 480, "idle", now=0)
+        assert apply("changeReport", 500, "active", now=1)
+        # Soon after, an older version is a late delivery.
+        assert not apply("changeReport", 499, "idle", now=2)
+        assert not apply("changeReport", 4, "idle", now=60)
+        # Long after the newest one applied, it's a new counter.
+        assert apply("changeReport", 5, "idle", now=130)
+        assert apply("changeReport", 6, "active", now=131)
+        assert tracker.state(SERIAL)["state"] == "active"
+
     def test_edit_uses_update_cook(self) -> None:
         status = parse_status(MODEL_BOV950, OVEN_SHADOW)
         edit = build_edit(MODEL_BOV950, OVEN_SHADOW, status, temperature_c=210, duration_s=600)
@@ -515,12 +552,96 @@ class TestRequests:
         with pytest.raises(ValueError):
             build_bov950_steps(CookSettings(mode="toast"))
 
+    @pytest.mark.parametrize("temperature", [float("inf"), float("-inf"), float("nan")])
+    def test_oven_temperature_must_be_a_number(self, temperature: float) -> None:
+        """A ValueError, which the coordinator reports, rather than round()'s OverflowError."""
+        with pytest.raises(ValueError):
+            build_manual_steps(MODEL_BOV950, CookSettings(mode="bake", temperature_c=temperature, duration_s=600))
+
+
+MALFORMED_CSJ = [
+    {"cookTime": "abc"},
+    {"cookTime": float("inf"), "timeRemaining": 10**400},
+    {"timeRemaining": 1e300},  # a timer past the year 9999
+    {"timeRemaining": [1]},
+    {"programStep": []},
+    {"programStep": {"x": 1}},
+    {"errorState": 1, "eventReason": {}},
+    {"bathTemp": float("nan"), "setPoint": float("inf")},
+    {"firmwareVersion": {"v": 1}},
+]
+MALFORMED_OVEN = [
+    {"appliance": {"mode": []}},
+    {"errors": 5},
+    {"errors": [{"code": 1, "ts": 5}, {"code": [], "ts": "x"}]},
+    {"heaters": [{"state": [], "cur_temp": "hot", "temp_sp": {}}]},
+    {"heaters": [{"state": 1, "cur_temp": float("inf"), "temp_sp": 200, "temp_sp_m": float("nan")}]},
+    {"timers": [{"id": 1, "state": 1, "down_from_n": "x", "now": "y", "timestamp": "z"}]},
+    {"timers": [{"id": 1, "state": 1, "down_from_n": 600, "now": 300, "timestamp": float("inf")}]},
+    {"firmware": {"host_mcu": 5}},
+    {"appliance": {"mode": 2, "preset": float("nan")}},
+]
+
+
+@pytest.mark.parametrize("fields", MALFORMED_CSJ)
+def test_malformed_joule_fields_read_as_missing(fields: dict) -> None:
+    """Reading the state never raises: one bad field would freeze the appliance's status."""
+    status = parse_status(MODEL_CSJ100, csj_point(1, "ACTIVE", 3, 100, **fields)["data"], NOW)
+    assert status.state in (CookState.COOKING, CookState.IDLE, CookState.ERROR)
+
+
+def test_malformed_joule_fields_become_none() -> None:
+    status = parse_status(
+        MODEL_CSJ100,
+        csj_point(1, "ACTIVE", 3, 1e300, bathTemp=float("nan"), cookTime="abc", firmwareVersion=123)["data"],
+        NOW,
+    )
+    assert (status.current_temp_c, status.cook_time_s, status.ends_at) == (None, None, None)
+    assert status.firmware == "123"  # a number, for the device's software version
+
+
+@pytest.mark.parametrize("fields", MALFORMED_OVEN)
+@pytest.mark.parametrize("state", ["idle", "active", "virtualButtonPress"])
+def test_malformed_oven_fields_read_as_missing(state: str, fields: dict) -> None:
+    previous = parse_status(MODEL_BOV950, {**OVEN_SHADOW, "state": "idle"}, NOW)
+    parse_status(MODEL_BOV950, {**OVEN_SHADOW, "state": state, **fields}, NOW, previous)
+
+
+class TestLimits:
+    """What a cook start refuses, rather than letting the cook steps change it."""
+
+    def test_within_limits(self) -> None:
+        assert cook_limit_problem(MODEL_CSJ100, CookSettings(temperature_c=60, duration_s=None)) is None
+        assert cook_limit_problem(MODEL_BOV950, oven_mode_defaults(OVEN_MODES["broil"])) is None
+        # The oven gets whole degrees: 250.4 °C is 250 °C.
+        bake = replace(oven_mode_defaults(OVEN_MODES["bake"]), temperature_c=250.4)
+        assert cook_limit_problem(MODEL_BOV950, bake) is None
+
+    @pytest.mark.parametrize("temperature", [19.9, 98.1, float("nan"), float("inf"), None])
+    def test_sous_vide_temperature(self, temperature: float | None) -> None:
+        problem = cook_limit_problem(MODEL_CSJ100, CookSettings(temperature_c=temperature))
+        assert problem == LimitProblem("temperature_out_of_range", 20.0, 98.0)
+
+    def test_cook_time_follows_the_temperature(self) -> None:
+        """Bake for 6 hours at 165 °C, then turn it up: at 200 °C and above, 4 hours at most."""
+        bake = replace(oven_mode_defaults(OVEN_MODES["bake"]), duration_s=6 * 3600)
+        assert cook_limit_problem(MODEL_BOV950, bake) is None
+        hotter = replace(bake, temperature_c=220)
+        assert cook_limit_problem(MODEL_BOV950, hotter) == LimitProblem("duration_out_of_range", 60, 4 * 3600)
+
+    def test_a_level_mode_ignores_the_temperature(self) -> None:
+        broil = replace(oven_mode_defaults(OVEN_MODES["broil"]), temperature_c=400)
+        assert cook_limit_problem(MODEL_BOV950, broil) is None
+
 
 def test_parse_message_shapes() -> None:
     update = parse_message({"serialNumber": "s", "messageType": "changeReport", "version": "12",
                             "data": {"reported": {"a": 1}}})
     assert update == StateUpdate("s", "changeReport", {"a": 1}, False, 12)
     assert parse_message({"serialNumber": "s", "messageType": "pong", "data": {}}) is None
+    # A serial that isn't text can't name an appliance, or be looked up.
+    for serial in (["s"], {"s": 1}, 12):
+        assert parse_message({"serialNumber": serial, "messageType": "applianceDataPoint", "data": {}}) is None
 
 
 class TestPreheat:
@@ -595,3 +716,45 @@ class TestPreheat:
         heated = {**cold, "state": "virtualButtonPress", "currentStepState": "done", "heater": {**cold["heater"], "state": 2}}
         ready = parse_status(MODEL_BOV950, heated, NOW + timedelta(seconds=300), previous=last)
         assert (ready.state, ready.preheat_pct, ready.preheat_started) == (CookState.READY, None, None)
+
+
+class TestAutoStart:
+    """Start timer automatically, for a Joule that waits for the food anyway (verified)."""
+
+    @staticmethod
+    def status(step: int, cook_id: str | None = "c1", state: str = "ACTIVE") -> ApplianceStatus:
+        return parse_status(MODEL_CSJ100, csj_point(1, state, step, 0, cookId=cook_id)["data"], NOW)
+
+    def test_presses_once_the_cook_is_ready(self) -> None:
+        auto = AutoStart(requested_at=0)
+        # Before the Joule takes the recipe it still reports idle.
+        assert auto.step(self.status(0, cook_id=None), now=1) is AutoStartAction.WAIT
+        assert auto.step(self.status(1), now=2) is AutoStartAction.WAIT
+        assert auto.cook_id == "c1"
+        assert auto.step(self.status(2), now=60) is AutoStartAction.PRESS
+
+    def test_ready_straight_away(self) -> None:
+        """Water already at temperature: the first report of the cook is Ready for food."""
+        assert AutoStart(requested_at=0).step(self.status(2), now=1) is AutoStartAction.PRESS
+
+    @pytest.mark.parametrize(
+        ("step", "cook_id"),
+        [(3, "c1"), (4, "c1"), (0, None), (2, "other")],
+    )
+    def test_nothing_to_press(self, step: int, cook_id: str | None) -> None:
+        """The timer started by itself, the cook ended, or another cook took its place."""
+        auto = AutoStart(requested_at=0)
+        auto.step(self.status(1), now=1)
+        assert auto.step(self.status(step, cook_id), now=2) is AutoStartAction.DROP
+
+    def test_offline_for_a_moment(self) -> None:
+        auto = AutoStart(requested_at=0)
+        auto.step(self.status(1), now=1)
+        assert auto.step(self.status(1, state="OFFLINE"), now=30) is AutoStartAction.WAIT
+        assert auto.step(self.status(2), now=40) is AutoStartAction.PRESS
+
+    def test_a_cook_that_never_started(self) -> None:
+        """Given up after a while, so a later cook started elsewhere isn't taken for it."""
+        auto = AutoStart(requested_at=0)
+        assert auto.step(self.status(0, cook_id=None), now=60) is AutoStartAction.WAIT
+        assert auto.step(self.status(0, cook_id=None), now=AUTO_START_BIND_S + 1) is AutoStartAction.DROP

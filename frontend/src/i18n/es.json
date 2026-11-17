@@ -106,6 +106,8 @@
   "reason.untested": "El control del {product} aún no se ha probado, así que Home Assistant solo lo supervisa.",
   "reason.open_options": "Permitir el control en las opciones de la integración",
   "reason.oven_running": "No se puede cambiar una cocción del horno en curso. Detenla para cambiar los ajustes.",
+  "reason.cook_over": "La cocción ha terminado, así que no se puede cambiar. Detenla para iniciar otra.",
+  "reason.cook_locked": "En este aparato no se puede cambiar una cocción en curso. Detenla para cambiar los ajustes.",
   "value.until_stopped": "Sin límite",
   "value.open": "Abierta",
   "value.closed": "Cerrada",

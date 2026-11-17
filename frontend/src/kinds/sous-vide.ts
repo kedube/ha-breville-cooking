@@ -146,21 +146,26 @@ export const sousVide: KindModel = {
         : null,
     ];
     // Changing a running cook needs control, as starting one does; the settings for the next
-    // cook only change Home Assistant's own settings.
-    const editReason = active ? controlReason(ctx) : null;
-    const link = editReason ? integrationLink(ctx) : null;
+    // cook only change Home Assistant's own settings. A Joule's running cook can't be changed
+    // at all: it showed the new setpoint but held the old temperature, while the timer ran and
+    // after it ran out. Neither can any cook that's over.
+    const over = active && phaseOf(ctx) === "done";
+    const locked = active && !ctx.appliance.can_edit_cook;
+    const editReason = over ? t("reason.cook_over") : locked ? t("reason.cook_locked") : active ? controlReason(ctx) : null;
+    const link = editReason && !over && !locked ? integrationLink(ctx) : null;
+    const changesCook = active && !over && !locked;
     const settings: Array<Control | null> = [
       numberSetpoint(ctx, "target_temperature", t("control.target_temperature"), {
         step: 0.5,
         reasons: [editReason],
         link,
-        hint: active ? t("hint.changes_cook") : null,
+        hint: changesCook ? t("hint.changes_cook") : null,
       }),
       durationControl(ctx, "cook_time", t("control.cook_time"), COOK_TIMES, {
         reasons: [editReason],
         link,
         zero: t("value.until_stopped"),
-        hint: active ? t("hint.changes_time_left") : null,
+        hint: changesCook ? t("hint.changes_time_left") : null,
       }),
       switchToggle(ctx, "auto_start_timer", t("control.auto_start_timer"), {
         hint: t("hint.auto_start_timer"),

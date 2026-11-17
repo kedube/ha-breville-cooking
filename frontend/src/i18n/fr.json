@@ -106,6 +106,8 @@
   "reason.untested": "Le contrôle du {product} n'a pas encore été testé\u00a0: Home Assistant se contente donc de le surveiller.",
   "reason.open_options": "Autoriser le contrôle dans les options de l'intégration",
   "reason.oven_running": "Une cuisson au four en cours ne peut pas être modifiée. Arrêtez-la pour changer les réglages.",
+  "reason.cook_over": "La cuisson est terminée et ne peut plus être modifiée. Arrêtez-la pour en lancer une autre.",
+  "reason.cook_locked": "Sur cet appareil, une cuisson en cours ne peut pas être modifiée. Arrêtez-la pour changer les réglages.",
   "value.until_stopped": "Jusqu'à l'arrêt",
   "value.open": "Ouverte",
   "value.closed": "Fermée",

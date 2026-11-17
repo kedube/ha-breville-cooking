@@ -65,6 +65,14 @@ class BrevilleEntity(CoordinatorEntity[BrevilleCoordinator]):
             serial_number=appliance.serial,
         )
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        # Live state arrives for one appliance at a time; the others' entities
+        # have nothing new. Everything else updates every entity.
+        if self.coordinator.updating_serial not in (None, self._appliance.serial):
+            return
+        super()._handle_coordinator_update()
+
     @property
     def appliance(self) -> Appliance:
         return self._appliance

@@ -313,6 +313,21 @@
     },
     "stop_cook_first": {
       "message": "请先停止烹饪，再更改此设置。"
+    },
+    "cook_over": {
+      "message": "烹饪已结束，无法更改。请先停止，再开始新的烹饪。"
+    },
+    "temperature_out_of_range": {
+      "message": "此次烹饪的温度必须介于 {min} 和 {max} 之间。"
+    },
+    "duration_out_of_range": {
+      "message": "此次烹饪的烹饪时间必须介于 {min} 和 {max} 分钟之间。"
+    },
+    "temperature_not_for_mode": {
+      "message": "此模式按档位烹饪，而非按温度。"
+    },
+    "cook_running": {
+      "message": "已有烹饪正在进行。请先停止，再开始新的烹饪。"
     }
   }
 }

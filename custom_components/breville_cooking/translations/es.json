@@ -313,6 +313,21 @@
     },
     "stop_cook_first": {
       "message": "Detén la cocción antes de cambiar este ajuste."
+    },
+    "cook_over": {
+      "message": "La cocción ha terminado, así que no se puede cambiar. Detenla para iniciar otra."
+    },
+    "temperature_out_of_range": {
+      "message": "La temperatura de esta cocción debe estar entre {min} y {max}."
+    },
+    "duration_out_of_range": {
+      "message": "El tiempo de cocción debe estar entre {min} y {max} minutos para esta cocción."
+    },
+    "temperature_not_for_mode": {
+      "message": "Este modo cocina con un nivel, no con una temperatura."
+    },
+    "cook_running": {
+      "message": "Ya hay una cocción en curso. Detenla antes de iniciar otra."
     }
   }
 }

@@ -1,6 +1,8 @@
 # Run by hand from the Actions tab, on main. Once CI passes, each run raises
-# the version by 0.01 (0.00 -> 0.01 ... 0.99 -> 1.00), then commits, tags and
-# publishes it. Tags are the bare version, with no "v" in front.
+# the version by 0.01 (0.00 -> 0.01 ... 0.99 -> 1.00), makes CHANGELOG.md's
+# Unreleased section that version's, then commits, tags and publishes it, with
+# the changelog section as the release notes' Highlights. Tags are the bare
+# version, with no "v" in front.
 name: Release
 
 on:
@@ -30,10 +32,11 @@ jobs:
           # Fetch the tags too, so that an existing tag fails the run early.
           fetch-depth: 0
 
-      - name: Bump version
+      - name: Bump version and rotate the changelog
         id: version
         run: |
           version=$(python3 scripts/bump_version.py --write)
+          python3 scripts/changelog.py rotate "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Commit and tag
@@ -42,7 +45,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit --message "Release $VERSION" custom_components/breville_cooking/manifest.json
+          git commit --message "Release $VERSION" custom_components/breville_cooking/manifest.json CHANGELOG.md
           git tag --annotate "$VERSION" --message "Release $VERSION"
           # The commit and the tag land together, or neither does.
           git push --atomic origin HEAD:main "refs/tags/$VERSION"
@@ -51,10 +54,18 @@ jobs:
         working-directory: custom_components/breville_cooking
         run: zip -r "$GITHUB_WORKSPACE/breville_cooking.zip" .
 
+      # GitHub's generated notes list only merged pull requests, and most
+      # changes go straight to main, so the notes are built from the changelog
+      # and the commits since the last release.
+      - name: Write release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python3 scripts/changelog.py notes "$VERSION" "$RUNNER_TEMP/release_notes.md"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: >-
           gh release create "$VERSION" breville_cooking.zip
-          --title "$VERSION" --generate-notes --verify-tag
+          --title "$VERSION" --notes-file "$RUNNER_TEMP/release_notes.md" --verify-tag

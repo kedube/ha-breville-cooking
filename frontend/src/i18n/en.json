@@ -106,6 +106,8 @@
   "reason.untested": "Control of the {product} hasn't been tested yet, so Home Assistant only monitors it.",
   "reason.open_options": "Allow control in the integration's options",
   "reason.oven_running": "A running oven cook can't be changed. Stop it to change the settings.",
+  "reason.cook_over": "The cook is over, so it can't be changed. Stop it to start another.",
+  "reason.cook_locked": "A running cook on this appliance can't be changed. Stop it to change the settings.",
   "value.until_stopped": "Until stopped",
   "value.open": "Open",
   "value.closed": "Closed",

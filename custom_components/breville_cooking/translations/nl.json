@@ -313,6 +313,21 @@
     },
     "stop_cook_first": {
       "message": "Stop het kookproces voordat je deze instelling wijzigt."
+    },
+    "cook_over": {
+      "message": "Het kookproces is klaar en kan niet meer worden gewijzigd. Stop het om een nieuw te starten."
+    },
+    "temperature_out_of_range": {
+      "message": "De temperatuur voor dit kookproces moet tussen {min} en {max} liggen."
+    },
+    "duration_out_of_range": {
+      "message": "De kooktijd voor dit kookproces moet tussen {min} en {max} minuten liggen."
+    },
+    "temperature_not_for_mode": {
+      "message": "Deze modus kookt op een niveau, niet op een temperatuur."
+    },
+    "cook_running": {
+      "message": "Er loopt al een kookproces. Stop het voordat je een nieuw start."
     }
   }
 }

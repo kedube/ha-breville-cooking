@@ -106,6 +106,8 @@
   "reason.untested": "Styrning av {product} har inte testats än, så Home Assistant övervakar den bara.",
   "reason.open_options": "Tillåt styrning i integrationens alternativ",
   "reason.oven_running": "En pågående tillagning i ugnen kan inte ändras. Stoppa den för att ändra inställningarna.",
+  "reason.cook_over": "Tillagningen är klar och kan inte ändras. Stoppa den för att starta en ny.",
+  "reason.cook_locked": "En pågående tillagning kan inte ändras på den här apparaten. Stoppa den för att ändra inställningarna.",
   "value.until_stopped": "Tills du stoppar",
   "value.open": "Öppen",
   "value.closed": "Stängd",

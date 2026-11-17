@@ -313,6 +313,21 @@
     },
     "stop_cook_first": {
       "message": "Stoppe den Garvorgang, bevor du diese Einstellung änderst."
+    },
+    "cook_over": {
+      "message": "Der Garvorgang ist beendet und lässt sich nicht mehr ändern. Stoppe ihn, um einen neuen zu starten."
+    },
+    "temperature_out_of_range": {
+      "message": "Die Temperatur muss für diesen Garvorgang zwischen {min} und {max} liegen."
+    },
+    "duration_out_of_range": {
+      "message": "Die Garzeit muss für diesen Garvorgang zwischen {min} und {max} Minuten liegen."
+    },
+    "temperature_not_for_mode": {
+      "message": "Dieser Modus gart mit einer Stufe, nicht mit einer Temperatur."
+    },
+    "cook_running": {
+      "message": "Es läuft bereits ein Garvorgang. Stoppe ihn, bevor du einen neuen startest."
     }
   }
 }

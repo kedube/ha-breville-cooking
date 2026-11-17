@@ -313,6 +313,21 @@
     },
     "stop_cook_first": {
       "message": "Stop the cook before changing this setting."
+    },
+    "cook_over": {
+      "message": "The cook is over, so it can't be changed. Stop it to start another."
+    },
+    "temperature_out_of_range": {
+      "message": "The temperature must be between {min} and {max} for this cook."
+    },
+    "duration_out_of_range": {
+      "message": "The cook time must be between {min} and {max} minutes for this cook."
+    },
+    "temperature_not_for_mode": {
+      "message": "This mode cooks at a level, not a temperature."
+    },
+    "cook_running": {
+      "message": "A cook is already running. Stop it before starting another."
     }
   }
 }

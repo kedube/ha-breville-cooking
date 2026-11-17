@@ -58,13 +58,34 @@ describe("the Joule", () => {
     expect((kindModel(low.appliance).drawingState(low) as SousVideState).error).toBe("low_water");
   });
 
-  it("changes the running cook from its settings", () => {
+  it("shows the running cook's settings, which a Joule can't change", () => {
+    // Verified: a Joule took a new setpoint, and reported it, but went on heating to the old one.
     const list = sections("joule-cooking");
     expect(list.map((section) => section.id)).toEqual(["cook", "settings", "details"]);
     expect(list[1].title).toBe("This cook");
+    const reason = "A running cook on this appliance can't be changed. Stop it to change the settings.";
     const target = control(list, "settings", "target_temperature");
-    expect(target).toMatchObject({ kind: "setpoint", value: 56, unit: "°C", step: 0.5, disabled: false, hint: "Changes the running cook." });
+    expect(target).toMatchObject({ kind: "setpoint", value: 56, unit: "°C", disabled: true, reason, hint: null, link: null });
+    expect(control(list, "settings", "cook_time")).toMatchObject({ disabled: true, reason });
     expect(control(list, "cook", "stop")).toMatchObject({ button: "Stop", tone: "danger", confirm: "Stop the cook?" });
+  });
+
+  it("changes a running cook where the appliance can", () => {
+    const ctx = contextFor("joule-cooking");
+    ctx.appliance = { ...ctx.appliance, can_edit_cook: true };
+    const list = kindModel(ctx.appliance).sections(ctx);
+    const target = control(list, "settings", "target_temperature");
+    expect(target).toMatchObject({ disabled: false, hint: "Changes the running cook." });
+  });
+
+  it("doesn't change a cook that's over", () => {
+    // A Joule whose timer had run out showed a new setpoint but held the old temperature.
+    const list = sections("joule-done");
+    const reason = "The cook is over, so it can't be changed. Stop it to start another.";
+    for (const id of ["target_temperature", "cook_time"]) {
+      expect(control(list, "settings", id)).toMatchObject({ disabled: true, reason, link: null });
+    }
+    expect(control(list, "cook", "stop")).toMatchObject({ disabled: false });
   });
 
   it("confirms a start with the settings", () => {
