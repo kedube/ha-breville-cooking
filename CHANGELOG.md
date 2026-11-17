@@ -6,6 +6,8 @@ in `custom_components/breville_cooking/manifest.json`. Add entries under
 version's, and publishes it as the release notes' Highlights.
 
 ## Unreleased
+
+## 0.14 — 2026-11-17
 ### Joule
 - **Start timer automatically works on the Joule.** The Joule ignored the
   setting and waited for **Continue** at temperature. Home Assistant now arms
