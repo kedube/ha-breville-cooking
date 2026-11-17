@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Work out the next release version.
 
-Versions have two decimal places and go up by 0.01 with each release:
-0.00, 0.01, ... 0.99, 1.00, 1.01, ... The version lives in the integration's
-manifest.json, and release tags use it as is, with no "v" in front.
+Versions have two decimal places. A minor release goes up by 0.01 (0.13 to
+0.14, ... 0.99 to 1.00), and a major release to the next whole number (0.13 to
+1.00, 1.05 to 2.00). The version lives in the integration's manifest.json, and
+release tags use it as is, with no "v" in front.
 
-  python3 scripts/bump_version.py           # print the next version
-  python3 scripts/bump_version.py --write   # and save it in manifest.json
+  python3 scripts/bump_version.py                       # print the next minor version
+  python3 scripts/bump_version.py --bump major          # or the next major one
+  python3 scripts/bump_version.py --bump major --write  # and save it in manifest.json
 
 The Release workflow (.github/workflows/release.yml) runs this.
 """
@@ -38,9 +40,21 @@ def format_version(hundredths: int) -> str:
     return f"{major}.{minor:02d}"
 
 
-def next_version(version: str) -> str:
-    """Return the version after this one: "0.99" is followed by "1.00"."""
-    return format_version(parse_version(version) + 1)
+BUMPS = ("minor", "major")
+
+
+def next_version(version: str, bump: str = "minor") -> str:
+    """Return the version after this one.
+
+    Minor: "0.13" is followed by "0.14", and "0.99" by "1.00".
+    Major: "0.13" is followed by "1.00", and "1.05" by "2.00".
+    """
+    hundredths = parse_version(version)
+    if bump == "minor":
+        return format_version(hundredths + 1)
+    if bump == "major":
+        return format_version((hundredths // 100 + 1) * 100)
+    raise ValueError(f"{bump!r} isn't one of {', '.join(BUMPS)}")
 
 
 def write_version(path: Path, version: str) -> None:
@@ -55,6 +69,7 @@ def write_version(path: Path, version: str) -> None:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--bump", choices=BUMPS, default="minor", help="minor (default) or major")
     parser.add_argument("--write", action="store_true", help="save the new version in manifest.json")
     parser.add_argument("--manifest", type=Path, default=MANIFEST, help=argparse.SUPPRESS)
     return parser.parse_args(argv)
@@ -64,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     current = json.loads(args.manifest.read_text()).get("version", "")
     try:
-        version = next_version(current)
+        version = next_version(current, args.bump)
     except ValueError as err:
         raise SystemExit(f"{args.manifest}: {err}") from None
     if args.write:

@@ -483,9 +483,13 @@ Describe each change under **Unreleased** in [CHANGELOG.md](CHANGELOG.md) as
 you make it: what users see, not how it's done.
 
 Releases are made by hand: on GitHub, open **Actions → Release → Run
-workflow** and run it on `main`. After CI passes, the workflow:
+workflow**, choose the version bump, and run it on `main`. Or from a terminal:
+`gh workflow run release.yml -f bump=minor` (or `bump=major`). After CI passes,
+the workflow:
 
-1. Raises the version in `manifest.json` by 0.01 (0.00 → 0.01, …, 0.99 → 1.00).
+1. Raises the version in `manifest.json`. **minor**, the default, adds 0.01
+   (0.13 → 0.14, …, 0.99 → 1.00). **major** goes to the next whole version
+   (0.13 → 1.00, 1.05 → 2.00).
 2. Makes the changelog's Unreleased section that version's, dated today, with
    a new empty Unreleased section above it. If nothing was written under
    Unreleased, the section lists the commits since the last release instead.
@@ -495,8 +499,9 @@ workflow** and run it on `main`. After CI passes, the workflow:
    an update. Its notes are the version's changelog section as Highlights,
    then the commits since the last release.
 
-To preview the next version, run `python3 scripts/bump_version.py`. Both steps
-of the changelog are in `scripts/changelog.py` (`rotate` and `notes`).
+To preview the next version, run `python3 scripts/bump_version.py`, with
+`--bump major` for a major release. Both changelog steps are in
+`scripts/changelog.py` (`rotate` and `notes`).
 
 ### Probe script
 

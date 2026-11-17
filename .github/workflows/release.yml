@@ -1,12 +1,23 @@
-# Run by hand from the Actions tab, on main. Once CI passes, each run raises
-# the version by 0.01 (0.00 -> 0.01 ... 0.99 -> 1.00), makes CHANGELOG.md's
-# Unreleased section that version's, then commits, tags and publishes it, with
-# the changelog section as the release notes' Highlights. Tags are the bare
-# version, with no "v" in front.
+# Run by hand on main: Actions -> Release -> Run workflow, or
+# `gh workflow run release.yml -f bump=major`. Once CI passes, each run raises
+# the version (minor: 0.13 -> 0.14, 0.99 -> 1.00; major: 0.13 -> 1.00), makes
+# CHANGELOG.md's Unreleased section that version's, then commits, tags and
+# publishes it, with the changelog section as the release notes' Highlights.
+# Tags are the bare version, with no "v" in front.
 name: Release
+run-name: Release (${{ inputs.bump }})
 
 on:
   workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump: minor adds 0.01 (0.13 -> 0.14); major goes to the next whole version (0.13 -> 1.00)"
+        required: true
+        default: minor
+        type: choice
+        options:
+          - minor
+          - major
 
 permissions:
   contents: read
@@ -34,8 +45,10 @@ jobs:
 
       - name: Bump version and rotate the changelog
         id: version
+        env:
+          BUMP: ${{ inputs.bump }}
         run: |
-          version=$(python3 scripts/bump_version.py --write)
+          version=$(python3 scripts/bump_version.py --bump "$BUMP" --write)
           python3 scripts/changelog.py rotate "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 

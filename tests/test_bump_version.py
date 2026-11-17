@@ -33,6 +33,27 @@ def test_next_version(version: str, expected: str) -> None:
     assert bump_version.next_version(version) == expected
 
 
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("0.00", "1.00"),
+        ("0.13", "1.00"),
+        ("0.99", "1.00"),
+        ("1.00", "2.00"),
+        ("1.05", "2.00"),
+        ("9.99", "10.00"),
+    ],
+)
+def test_next_major_version(version: str, expected: str) -> None:
+    assert bump_version.next_version(version, "major") == expected
+
+
+def test_minor_is_the_default() -> None:
+    assert bump_version.next_version("0.13") == bump_version.next_version("0.13", "minor") == "0.14"
+    with pytest.raises(ValueError):
+        bump_version.next_version("0.13", "patch")
+
+
 @pytest.mark.parametrize("version", ["v0.01", "0.1", "0.001", "0.1.0", "01.00", "1", ""])
 def test_rejects_other_formats(version: str) -> None:
     with pytest.raises(ValueError):
@@ -83,6 +104,18 @@ def test_print_only_leaves_manifest_alone(tmp_path: Path, capsys: pytest.Capture
 
     assert capsys.readouterr().out == "0.05\n"
     assert json.loads(manifest.read_text())["version"] == "0.04"
+
+
+def test_major_bump_from_the_command_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text('{"domain": "breville_cooking", "version": "0.13"}\n')
+
+    assert bump_version.main(["--manifest", str(manifest), "--bump", "major", "--write"]) == 0
+
+    assert capsys.readouterr().out == "1.00\n"
+    assert json.loads(manifest.read_text())["version"] == "1.00"
+    with pytest.raises(SystemExit):
+        bump_version.main(["--manifest", str(manifest), "--bump", "patch"])
 
 
 def test_bad_manifest_version_fails(tmp_path: Path) -> None:

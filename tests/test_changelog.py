@@ -132,11 +132,17 @@ def _changelog() -> str:
     return (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
-def test_every_release_has_a_section_newest_first() -> None:
-    """From 0.01 to the manifest's version: the workflow adds each one as it releases it."""
+def _version_key(version: str) -> tuple[int, int]:
+    major, minor = version.split(".")
+    return int(major), int(minor)
+
+
+def test_releases_have_sections_newest_first() -> None:
+    """The workflow adds a section as it releases each version, so the newest is the manifest's.
+
+    A major release skips versions (0.13 is followed by 1.00), so there are gaps.
+    """
     manifest = json.loads((ROOT / "custom_components" / "breville_cooking" / "manifest.json").read_text())
-    major, minor = (int(part) for part in manifest["version"].split("."))
-    expected = [f"{n // 100}.{n % 100:02d}" for n in range(major * 100 + minor, 0, -1)]
 
     headings = HEADING_RE.findall(_changelog())
     assert headings[0] == "Unreleased"
@@ -145,9 +151,18 @@ def test_every_release_has_a_section_newest_first() -> None:
         match = re.fullmatch(r"(\d+\.\d\d) — (\d{4}-\d\d-\d\d)", heading)
         assert match, f"heading {heading!r} isn't '<version> — <date>'"
         versions.append(match[1])
-    assert versions == expected
+    assert versions[0] == manifest["version"]
+    assert versions[-1] == "0.01"
+    assert versions == sorted(versions, key=_version_key, reverse=True)
+    assert len(set(versions)) == len(versions)
     for version in versions:
         assert changelog.changelog_section(_changelog(), version), f"{version} has no entries"
+
+
+def test_every_release_up_to_0_13_has_a_section() -> None:
+    """Those were all minor releases, written up when the changelog began."""
+    versions = set(re.findall(r"^## (\d+\.\d\d) — ", _changelog(), re.MULTILINE))
+    assert {f"0.{n:02d}" for n in range(1, 14)} <= versions
 
 
 def test_changelog_links_resolve() -> None:

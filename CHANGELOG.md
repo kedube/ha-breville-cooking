@@ -71,6 +71,9 @@ version's, and publishes it as the release notes' Highlights.
   a new cook replacing an open one, and the cloud's stored state lagging.
 - **Release notes come from this changelog,** with the commits since the last
   release.
+- **The Release workflow asks for a minor or major version bump.** Minor adds
+  0.01, as every release has so far; major goes to the next whole version
+  (0.13 to 1.00).
 
 ## 0.13 — 2026-11-03
 - **The Joule Turbo is now marked as tested, so Home Assistant can control it
